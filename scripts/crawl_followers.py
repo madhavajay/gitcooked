@@ -40,8 +40,36 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "site" / "src" / "data"
 OUT_DIR = ROOT / "data" / "graph"
-NODES = OUT_DIR / "nodes.jsonl"
+NODES = OUT_DIR / "nodes.jsonl"  # legacy single-file store (auto-migrated)
+SHARDS = OUT_DIR / "shards"  # committed store: one jsonl per login prefix
 LOCK = OUT_DIR / "crawler.lock"
+
+
+def shard_path(login):
+    p = "".join(c if c.isalnum() else "_" for c in login[:2].lower()).ljust(2, "_")
+    return SHARDS / f"{p}.jsonl"
+
+
+def migrate_legacy():
+    if not NODES.exists():
+        return
+    SHARDS.mkdir(parents=True, exist_ok=True)
+    handles = {}
+    n = 0
+    for line in NODES.open():
+        try:
+            login = json.loads(line)["login"]
+        except Exception:
+            continue
+        sp = shard_path(login)
+        if sp not in handles:
+            handles[sp] = sp.open("a")
+        handles[sp].write(line if line.endswith("\n") else line + "\n")
+        n += 1
+    for h in handles.values():
+        h.close()
+    NODES.rename(NODES.with_suffix(".jsonl.migrated"))
+    print(f"migrated {n} records from {NODES.name} into {len(handles)} shards", flush=True)
 
 GLOBAL_TOP = 1000
 COUNTRY_TOP = 25
@@ -150,49 +178,58 @@ class Crawler:
             return 0
         crawled = 0
         pool = ThreadPoolExecutor(max_workers=workers)
-        with NODES.open("a") as out:
-            for i in range(0, len(todo), BATCH):
-                batch = todo[i : i + BATCH]
-                body = self.gql(self.first_page_query(batch))
-                data = body.get("data") or {}
-                recs, jobs = {}, []
-                for j, login in enumerate(batch):
-                    u = data.get(f"u{j}")
-                    if not u:
-                        recs[login] = {"login": login, "error": "not_found", "fetchedAt": now().isoformat()}
-                        continue
-                    rec = {"login": u["login"], "fetchedAt": now().isoformat(), "truncated": False}
-                    for conn in ("followers", "following"):
-                        block = u[conn]
-                        rec[conn] = [n["login"] for n in block["nodes"] if n]
-                        if block["pageInfo"]["hasNextPage"]:
-                            jobs.append((login, conn, block["pageInfo"]["endCursor"]))
-                    rec["followerCount"] = u["followers"]["totalCount"]
-                    rec["followingCount"] = u["following"]["totalCount"]
-                    recs[login] = rec
-                # paginate truncated connections concurrently across users
-                futures = {pool.submit(self.paginate, lg, cn, cur): (lg, cn) for lg, cn, cur in jobs}
-                for fut, (lg, cn) in futures.items():
-                    more, t = fut.result()
-                    recs[lg][cn].extend(more)
-                    recs[lg]["truncated"] = recs[lg]["truncated"] or t
-                for login in batch:
-                    if login in recs:
-                        out.write(json.dumps(recs[login]) + "\n")
-                        crawled += 1
-                out.flush()
-                if (i // BATCH) % 10 == 0:
-                    print(f"  {min(i + BATCH, len(todo))}/{len(todo)} crawled", flush=True)
+        SHARDS.mkdir(parents=True, exist_ok=True)
+        for i in range(0, len(todo), BATCH):
+            batch = todo[i : i + BATCH]
+            body = self.gql(self.first_page_query(batch))
+            data = body.get("data") or {}
+            if not data:
+                # request failed outright (e.g. persistent 502s) — skip, retry next pass
+                print(f"  batch failed, deferring {len(batch)} users", flush=True)
+                continue
+            recs, jobs = {}, []
+            for j, login in enumerate(batch):
+                u = data.get(f"u{j}")
+                if not u:
+                    recs[login] = {"login": login, "error": "not_found", "fetchedAt": now().isoformat()}
+                    continue
+                rec = {"login": u["login"], "fetchedAt": now().isoformat(), "truncated": False}
+                for conn in ("followers", "following"):
+                    block = u[conn]
+                    rec[conn] = [n["login"] for n in block["nodes"] if n]
+                    if block["pageInfo"]["hasNextPage"]:
+                        jobs.append((login, conn, block["pageInfo"]["endCursor"]))
+                rec["followerCount"] = u["followers"]["totalCount"]
+                rec["followingCount"] = u["following"]["totalCount"]
+                recs[login] = rec
+            # paginate truncated connections concurrently across users
+            futures = {pool.submit(self.paginate, lg, cn, cur): (lg, cn) for lg, cn, cur in jobs}
+            for fut, (lg, cn) in futures.items():
+                more, t = fut.result()
+                recs[lg][cn].extend(more)
+                recs[lg]["truncated"] = recs[lg]["truncated"] or t
+            by_shard = {}
+            for login in batch:
+                if login in recs:
+                    by_shard.setdefault(shard_path(login), []).append(recs[login])
+                    crawled += 1
+            for sp, items in by_shard.items():
+                with sp.open("a") as f:
+                    for rec in items:
+                        f.write(json.dumps(rec) + "\n")
+            if (i // BATCH) % 10 == 0:
+                print(f"  {min(i + BATCH, len(todo))}/{len(todo)} crawled", flush=True)
         pool.shutdown(wait=False)
         print(f"pass done: {crawled} new", flush=True)
         return crawled
 
 
 def load_store():
-    """latest record per login"""
+    """latest record per login (legacy file + all shards)"""
     store = {}
-    if NODES.exists():
-        for line in NODES.open():
+    files = ([NODES] if NODES.exists() else []) + (sorted(SHARDS.glob("*.jsonl")) if SHARDS.is_dir() else [])
+    for f in files:
+        for line in f.open():
             try:
                 rec = json.loads(line)
                 store[rec["login"]] = rec
@@ -255,7 +292,7 @@ def status(store):
     edges = sum(len(r.get("followers") or []) + len(r.get("following") or []) for r in ok)
     trunc = sum(1 for r in ok if r.get("truncated"))
     dates = sorted(r["fetchedAt"] for r in store.values() if r.get("fetchedAt"))
-    print(f"store: {NODES}")
+    print(f"store: {SHARDS}/ ({len(list(SHARDS.glob('*.jsonl')) if SHARDS.is_dir() else [])} shards)")
     print(f"crawled: {len(ok)} users ({errs} errors, {trunc} truncated)")
     print(f"edges stored: {edges:,}")
     if dates:
@@ -281,6 +318,7 @@ def main():
         return
 
     acquire_lock()
+    migrate_legacy()
     c = Crawler()
 
     def one_pass():

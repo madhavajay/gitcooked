@@ -28,25 +28,30 @@ def main():
     ap.add_argument("--max-nodes", type=int, default=8000)
     args = ap.parse_args()
 
-    src = GRAPH / ("nodes.SIMULATED.jsonl" if args.simulated else "nodes.jsonl")
-    if not src.exists():
-        raise SystemExit(f"missing {src}")
+    if args.simulated:
+        sources = [GRAPH / "nodes.SIMULATED.jsonl"]
+    else:
+        sources = [p for p in [GRAPH / "nodes.jsonl"] if p.exists()]
+        sources += sorted((GRAPH / "shards").glob("*.jsonl")) if (GRAPH / "shards").is_dir() else []
+    if not sources or not all(p.exists() for p in sources):
+        raise SystemExit(f"no graph store found in {GRAPH} — run scripts/crawl_followers.py first")
 
     glob = json.loads((DATA / "global.json").read_text())
     ranked = {u["login"]: u for u in glob["modes"]["commits"]}
 
     store = {}
     simulated = args.simulated
-    for line in src.open():
-        try:
-            rec = json.loads(line)
-        except Exception:
-            continue
-        if rec.get("error"):
-            continue
-        if rec.get("simulated") and not args.simulated:
-            raise SystemExit("simulated records found in real store — refusing to build")
-        store[rec["login"]] = rec
+    for src in sources:
+        for line in src.open():
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            if rec.get("error"):
+                continue
+            if rec.get("simulated") and not args.simulated:
+                raise SystemExit("simulated records found in real store — refusing to build")
+            store[rec["login"]] = rec
 
     follows = {}  # src -> set(dst), all ranked
     for login, rec in store.items():

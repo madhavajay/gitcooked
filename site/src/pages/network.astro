@@ -21,6 +21,7 @@ import Layout from '../layouts/Layout.astro';
 
   <script>
     import ForceGraph3D from '3d-force-graph';
+    import * as THREE from 'three';
     import countries from '../geo/countries.json';
 
     const REGION_COLORS = {
@@ -28,6 +29,7 @@ import Layout from '../layouts/Layout.astro';
       'North America': '#8a5cff', 'South America': '#ffb02e',
       'Oceania': '#2eff9e', 'Middle East': '#ff5c5c',
     };
+    const FADE_COLOR = 'rgba(90,98,140,0.18)';
 
     const el = document.getElementById('graph');
     const status = document.getElementById('net-status');
@@ -35,6 +37,8 @@ import Layout from '../layouts/Layout.astro';
     let adj = null;
     let geoMode = false;
     let Graph = null;
+    let highlightSet = new Set(); // bright (path / ego center)
+    let focusSet = null; // when set, everything outside fades
 
     const byLogin = new Map();
 
@@ -74,31 +78,125 @@ import Layout from '../layouts/Layout.astro';
       return dist;
     }
 
-    const nodeColor = (n) => {
-      const c = countries[n.country];
-      return REGION_COLORS[c?.region] ?? '#7b84ad';
-    };
+    // ---- avatar faces: async textures, loaded on zoom proximity ----
 
-    function render(nodes, links, highlight = new Set()) {
+    const texCache = new Map(); // login -> Texture | 'loading' | 'failed'
+    let refreshQueued = false;
+
+    function scheduleRefresh() {
+      if (refreshQueued) return;
+      refreshQueued = true;
+      setTimeout(() => {
+        refreshQueued = false;
+        Graph.nodeThreeObject(Graph.nodeThreeObject()); // re-evaluate node objects
+      }, 400);
+    }
+
+    function flagEmoji(slug) {
+      const iso = countries[slug]?.iso2;
+      if (!iso || iso.length !== 2) return null;
+      return String.fromCodePoint(...[...iso.toUpperCase()].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65));
+    }
+
+    function circleTexture(img, n) {
+      const S = 96;
+      const c = document.createElement('canvas');
+      c.width = c.height = S;
+      const ctx = c.getContext('2d');
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(S / 2, S / 2, S / 2 - 3, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(img, 0, 0, S, S);
+      ctx.restore();
+      ctx.beginPath();
+      ctx.arc(S / 2, S / 2, S / 2 - 3, 0, Math.PI * 2);
+      ctx.strokeStyle = '#2ee6ff';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      const flag = flagEmoji(n.country);
+      if (flag) {
+        ctx.font = '28px "Apple Color Emoji", "Noto Color Emoji", sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(flag, S - 2, S + 2);
+      }
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+
+    function loadFace(n) {
+      if (!n.avatarUrl || texCache.has(n.login)) return;
+      texCache.set(n.login, 'loading');
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => { texCache.set(n.login, circleTexture(img, n)); scheduleRefresh(); };
+      img.onerror = () => texCache.set(n.login, 'failed');
+      img.src = `${n.avatarUrl}${n.avatarUrl.includes('?') ? '&' : '?'}s=96`;
+    }
+
+    const isFaded = (n) => focusSet && !focusSet.has(n.id);
+
+    function nodeObject(n) {
+      const t = texCache.get(n.login);
+      if (!t || typeof t === 'string') return false; // default sphere
+      const mat = new THREE.SpriteMaterial({ map: t, transparent: true, depthWrite: false });
+      mat.opacity = isFaded(n) ? 0.12 : 1;
+      const sprite = new THREE.Sprite(mat);
+      const s = highlightSet.has(n.id) ? 16 : isFaded(n) ? 4 : 9;
+      sprite.scale.set(s, s, 1);
+      return sprite;
+    }
+
+    // proximity loader: when the camera gets close, fetch faces for nearby nodes
+    setInterval(() => {
+      if (!Graph) return;
+      const nodes = Graph.graphData().nodes;
+      if (!nodes.length) return;
+      const cam = Graph.camera().position;
+      if (nodes.length <= 400) { nodes.forEach(loadFace); return; } // small view: all faces
+      let budget = 60; // per tick, keeps it smooth
+      for (const n of nodes) {
+        if (n.x === undefined || texCache.has(n.login)) continue;
+        const dx = n.x - cam.x, dy = n.y - cam.y, dz = n.z - cam.z;
+        if (dx * dx + dy * dy + dz * dz < 220 * 220) {
+          loadFace(n);
+          if (--budget <= 0) break;
+        }
+      }
+    }, 600);
+
+    // ---- rendering ----
+
+    function render(nodes, links) {
       Graph.graphData({
         nodes,
         links: links.map(([source, target, mutual]) => ({ source, target, mutual })),
       })
-        .nodeColor((n) => (highlight.has(n.id) ? '#ffffff' : nodeColor(n)))
-        .nodeVal((n) => (highlight.has(n.id) ? 14 : Math.max(2, 10 - Math.log10(n.rank + 1) * 3)))
+        .nodeThreeObject(nodeObject)
+        .nodeColor((n) => {
+          if (highlightSet.has(n.id)) return '#ffffff';
+          if (isFaded(n)) return FADE_COLOR;
+          const c = countries[n.country];
+          return REGION_COLORS[c?.region] ?? '#7b84ad';
+        })
+        .nodeVal((n) => (highlightSet.has(n.id) ? 14 : isFaded(n) ? 1 : Math.max(2, 10 - Math.log10(n.rank + 1) * 3)))
         .linkColor((l) => {
           const s = typeof l.source === 'object' ? l.source.id : l.source;
           const t = typeof l.target === 'object' ? l.target.id : l.target;
-          if (highlight.has(s) && highlight.has(t)) return '#ffffff';
+          if (highlightSet.has(s) && highlightSet.has(t)) return '#ffffff';
+          if (focusSet && !(focusSet.has(s) && focusSet.has(t))) return 'rgba(28,33,64,0.4)';
           return l.mutual ? '#8a5cff' : '#1c2140';
         })
         .linkWidth((l) => {
           const s = typeof l.source === 'object' ? l.source.id : l.source;
           const t = typeof l.target === 'object' ? l.target.id : l.target;
-          return highlight.has(s) && highlight.has(t) ? 3 : l.mutual ? 1.2 : 0.4;
+          return highlightSet.has(s) && highlightSet.has(t) ? 3.5 : l.mutual ? 1.2 : 0.4;
         })
         .linkOpacity(0.35);
-      applyGeo();
+      if (geoMode) applyGeo();
     }
 
     function applyGeo() {
@@ -112,16 +210,17 @@ import Layout from '../layouts/Layout.astro';
           n.fx = n.fy = n.fz = undefined;
         }
       }
-      Graph.d3ReheatSimulation();
+      try { Graph.d3ReheatSimulation(); } catch { /* engine not ready yet */ }
     }
 
     function fullView() {
-      // cap initial render for perf: top nodes by rank + all mutual links
+      highlightSet = new Set();
+      focusSet = null;
       const cap = 3000;
       const keep = new Set(DATA.nodes.slice(0, cap).map((n) => n.id));
       const links = DATA.links.filter(([a, b]) => keep.has(a) && keep.has(b));
       render(DATA.nodes.filter((n) => keep.has(n.id)), links);
-      status.textContent = `showing top ${Math.min(cap, DATA.nodes.length).toLocaleString()} of ${DATA.nodes.length.toLocaleString()} connected devs · ${DATA.links.length.toLocaleString()} edges · color = region, purple links = mutual follows`;
+      status.textContent = `showing top ${Math.min(cap, DATA.nodes.length).toLocaleString()} of ${DATA.nodes.length.toLocaleString()} connected devs · ${DATA.links.length.toLocaleString()} edges · color = region, purple links = mutual follows · zoom in for faces`;
     }
 
     function egoView(login) {
@@ -129,27 +228,61 @@ import Layout from '../layouts/Layout.astro';
       if (!node) { status.textContent = `${login} isn't in the crawled network (yet)`; return; }
       const dist = egoSet(node.id);
       const keep = new Set(dist.keys());
+      highlightSet = new Set([node.id]);
+      focusSet = null;
       const links = DATA.links.filter(([a, b]) => keep.has(a) && keep.has(b));
-      render(DATA.nodes.filter((n) => keep.has(n.id)), links, new Set([node.id]));
+      const nodes = DATA.nodes.filter((n) => keep.has(n.id));
+      render(nodes, links);
+      nodes.filter((n) => dist.get(n.id) <= 1).forEach(loadFace);
       status.textContent = `${node.login}: ${[...dist.values()].filter((d) => d === 1).length} direct connections, ${keep.size - 1} within 2 hops`;
       setTimeout(() => {
-        const n = Graph.graphData().nodes.find((x) => x.id === node.id);
-        if (n) Graph.cameraPosition({ x: (n.x ?? 0) + 120, y: (n.y ?? 0) + 40, z: (n.z ?? 0) + 120 }, n, 1200);
-      }, 1500);
+        try { Graph.zoomToFit(1000, 60, (n) => dist.get(n.id) <= 1); } catch {}
+      }, 1600);
+    }
+
+    function bfsDist(srcId, maxDepth = 6) {
+      const dist = new Map([[srcId, 0]]);
+      let q = [srcId];
+      for (let d = 1; d <= maxDepth && q.length; d++) {
+        const next = [];
+        for (const n of q) for (const m of adj.get(n)) {
+          if (!dist.has(m)) { dist.set(m, d); next.push(m); }
+        }
+        q = next;
+      }
+      return dist;
     }
 
     function pathView(fromLogin, toLogin) {
       const a = byLogin.get(fromLogin.toLowerCase());
       const b = byLogin.get(toLogin.toLowerCase());
       if (!a || !b) { status.textContent = 'both users need to be in the network'; return; }
-      const path = bfsPath(a.id, b.id);
-      if (!path) { status.textContent = `${a.login} and ${b.login} aren't connected (in crawled data)`; return; }
-      const keep = new Set(path);
-      for (const id of path) for (const m of adj.get(id)) keep.add(m);
+      const dA = bfsDist(a.id);
+      if (!dA.has(b.id)) { status.textContent = `${a.login} and ${b.login} aren't connected (in crawled data)`; return; }
+      const D = dA.get(b.id);
+      const dB = bfsDist(b.id, D);
+      // every node lying on ANY shortest path: dA(n) + dB(n) === D
+      const onPath = new Set();
+      for (const [id, da] of dA) {
+        if (dB.has(id) && da + dB.get(id) === D) onPath.add(id);
+      }
+      const canonical = bfsPath(a.id, b.id) ?? [];
+      const keep = new Set(onPath);
+      for (const id of onPath) for (const m of adj.get(id)) keep.add(m);
+      highlightSet = onPath;
+      focusSet = onPath; // everything off the shortest routes fades into context
       const links = DATA.links.filter(([x, y]) => keep.has(x) && keep.has(y));
-      render(DATA.nodes.filter((n) => keep.has(n.id)), links, new Set(path));
-      const names = path.map((id) => DATA.nodes.find((n) => n.id === id)?.login).join(' → ');
-      status.textContent = `${path.length - 1} degrees: ${names}`;
+      const nodes = DATA.nodes.filter((n) => keep.has(n.id));
+      render(nodes, links);
+      nodes.filter((n) => onPath.has(n.id)).forEach(loadFace);
+      const names = canonical.map((id) => DATA.nodes.find((n) => n.id === id)?.login).join(' → ');
+      const middlemen = onPath.size - 2;
+      status.textContent =
+        `${D} degree${D > 1 ? 's' : ''} apart · ${middlemen > canonical.length - 2 ? `${middlemen} devs sit on shortest routes` : 'one route'} · e.g. ${names}`;
+      // reorient the camera onto the shortest-path subgraph once the layout settles
+      setTimeout(() => {
+        try { Graph.zoomToFit(1200, 90, (n) => onPath.has(n.id)); } catch {}
+      }, 1800);
     }
 
     async function init() {
@@ -183,7 +316,6 @@ import Layout from '../layouts/Layout.astro';
       }
     }
 
-    const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
     document.getElementById('net-user').addEventListener('change', (e) => {
       const v = e.target.value.trim();
       if (v) egoView(v);

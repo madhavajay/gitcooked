@@ -1,0 +1,36 @@
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 2 * * *'
+
+name: network update
+permissions:
+  contents: write
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: regenerate site data (crawler reads it for seeds)
+        run: |
+          pip install pyyaml
+          python3 scripts/convert.py
+      - name: crawl follower graph (bounded pass)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/crawl_followers.py --expand --limit 1000 --max-age-days 30
+      - name: index repos for new top users
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/index_repos.py --top 400 || true
+      - name: commit shard changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/graph/shards data/repos 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "data: network crawl $(date -u +%F)"
+          git push
