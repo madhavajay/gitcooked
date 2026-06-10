@@ -153,6 +153,25 @@ def main():
                     except (TypeError, ValueError):
                         continue
 
+    # merge mitchellh/vouch VOUCHED.td data (cache built by fetch_vouched.py)
+    # vouched = good, denounced = bad
+    repo_vouches = {}
+    denounced = {}
+    vouched_cache = ROOT / "data" / "community" / "vouched.jsonl"
+    if vouched_cache.exists():
+        repos = {}
+        for line in vouched_cache.open():
+            try:
+                rec = json.loads(line)
+                repos[rec["repo"]] = rec
+            except Exception:
+                pass
+        for repo, rec in repos.items():
+            for v in rec.get("vouched") or []:
+                repo_vouches.setdefault(v["login"], []).append({"repo": repo, "note": v.get("note", "")})
+            for v in rec.get("denounced") or []:
+                denounced.setdefault(v["login"], []).append({"repo": repo, "note": v.get("note", "")})
+
     OUT.write_text(
         json.dumps(
             {
@@ -160,6 +179,8 @@ def main():
                 "checked": len(targets),
                 "found": found,
                 "vouches": vouches,
+                "repoVouches": repo_vouches,
+                "denounced": denounced,
                 "socials": socials,
                 "aiUsage": ai_usage,
             },
@@ -167,7 +188,7 @@ def main():
         )
     )
     print(f"checked {len(targets)}, found {found} gitcooked.json files")
-    print(f"vouches for {len(vouches)} users, ai usage rows: {len(ai_usage)} -> {OUT}")
+    print(f"vouches for {len(vouches)} users, repo-vouches for {len(repo_vouches)}, denounced {len(denounced)}, ai usage rows: {len(ai_usage)} -> {OUT}")
 
 
 if __name__ == "__main__":

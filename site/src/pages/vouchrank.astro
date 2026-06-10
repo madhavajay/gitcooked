@@ -54,6 +54,7 @@ const av = (u, s) => u.avatarUrl ? `${u.avatarUrl}${u.avatarUrl.includes('?') ? 
       <li>your score is what flows to you, log-scaled to 0–1000 against the #1 dev</li>
     </ol>
     <p class="sub">you can't game it with follower bots: a vouch only carries weight if the voucher is vouched for. share your score: <span class="mono">gitcooked.dev/vouchrank?u=YOU</span></p>
+    <p class="sub">we also index explicit <a href="https://github.com/mitchellh/vouch" target="_blank" rel="noopener">VOUCHED.td</a> files from 196 repos — project vouches show on profiles, and denouncements land on <a href="/denounced">the denounced list</a>.</p>
   </div>
 
   <script type="application/json" data-vr-initial set:html={JSON.stringify(initial)}></script>

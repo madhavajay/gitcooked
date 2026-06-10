@@ -1,0 +1,54 @@
+---
+import Layout from '../layouts/Layout.astro';
+import community from '../data/community.json';
+import global from '../data/global.json';
+
+const ranked = new Map(global.modes.commits.map((u) => [u.login.toLowerCase(), u]));
+const rows = Object.entries(community.denounced ?? {})
+  .map(([login, repos]) => ({ login, repos, user: ranked.get(login.toLowerCase()) }))
+  .sort((a, b) => b.repos.length - a.repos.length);
+const totalRepos = new Set(rows.flatMap((r) => r.repos.map((x) => x.repo))).size;
+const av = (u, s) => u?.avatarUrl ? `${u.avatarUrl}${u.avatarUrl.includes('?') ? '&' : '?'}s=${s}` : '';
+---
+<Layout title="denounced — gitcooked" description="Users denounced in projects' VOUCHED.td files.">
+  <h1 class="glow">denounced</h1>
+  <p class="sub">
+    the other side of <a href="https://github.com/mitchellh/vouch" target="_blank" rel="noopener">vouching</a>:
+    projects can denounce accounts in their <span class="mono">VOUCHED.td</span> (a <span class="mono">-handle</span> line).
+    {rows.length} accounts denounced across {totalRepos} repos. indexed from public files — disputes belong with the repo, not us.
+  </p>
+
+  {rows.length === 0 ? (
+    <p class="sub">nobody is denounced (yet). that's nice, actually.</p>
+  ) : (
+    <table class="rank-table">
+      <thead><tr><th>user</th><th>denounced by</th><th style="text-align:right">repos</th></tr></thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr>
+            <td><div class="who">
+              {r.user && <img class="avatar" src={av(r.user, 64)} loading="lazy" />}
+              <div>
+                <a href={`https://github.com/${r.login}`} target="_blank" rel="noopener">{r.login}</a>
+                {r.user && <div class="name">ranked #{r.user.rank.toLocaleString()}</div>}
+              </div>
+            </div></td>
+            <td class="meta">
+              {r.repos.map((x) => (
+                <a class="chip chip-bad" href={`https://github.com/${x.repo}`} target="_blank" rel="noopener" title={x.note}>
+                  {x.repo}
+                </a>
+              ))}
+            </td>
+            <td class="num">{r.repos.length}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )}
+</Layout>
+
+<style is:global>
+  .chip-bad { border-color: #ff5c5c66; color: #ff8c8c; }
+  .chip-bad:hover { border-color: #ff5c5c; text-shadow: 0 0 10px #ff5c5c88; }
+</style>

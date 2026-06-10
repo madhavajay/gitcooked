@@ -206,7 +206,15 @@ def main():
                 }
             )
         (web_dir / f"{login}.json").write_text(
-            json.dumps({"login": login, "inNetwork": indeg[i], "followers": out_rows}, ensure_ascii=False)
+            json.dumps(
+                {
+                    "login": login,
+                    "inNetwork": indeg[i],
+                    "totalFollowers": (store.get(login) or {}).get("followerCount"),
+                    "followers": out_rows,
+                },
+                ensure_ascii=False,
+            )
         )
         webs += 1
     print(f"follower webs for {webs} top-1000 users -> {web_dir}/")

@@ -159,6 +159,8 @@ table.rank-table { width: 100%; border-collapse: collapse; font-size: 14px; marg
   display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px;
   border: 1px solid var(--line); color: var(--muted); margin: 1px 2px;
 }
+.chip-good { border-color: #b6ff2e55; color: #cdff7a; }
+.chip-bad { border-color: #ff5c5c66; color: #ff8c8c; }
 
 .btn-more {
   display: block; margin: 26px auto; padding: 10px 28px; border-radius: 999px;

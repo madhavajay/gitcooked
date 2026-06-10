@@ -28,13 +28,15 @@ export async function getStaticPaths() {
       },
       local: (localRanks[u.login] ?? []).sort((a, b) => a.rank - b.rank),
       vouchedBy: community.vouches[u.login] ?? [],
+      repoVouches: community.repoVouches?.[u.login] ?? [],
+      denounced: community.denounced?.[u.login] ?? [],
       socials: { ...(profilesMeta[u.login]?.socials ?? {}), ...(community.socials[u.login] ?? {}) },
       email: profilesMeta[u.login]?.email ?? null,
     },
   }));
 }
 
-const { user, ranks, local, vouchedBy, socials, email } = Astro.props;
+const { user, ranks, local, vouchedBy, repoVouches, denounced, socials, email } = Astro.props;
 const av = user.avatarUrl ? `${user.avatarUrl}${user.avatarUrl.includes('?') ? '&' : '?'}s=240` : '';
 ---
 <Layout title={`${user.login} — gitcooked`} og={`/og/u/${user.login}.jpg`} description={`${user.login} is ranked #${ranks.commits} globally on gitcooked.`}>
@@ -81,10 +83,23 @@ const av = user.avatarUrl ? `${user.avatarUrl}${user.avatarUrl.includes('?') ? '
     </>
   )}
 
-  {vouchedBy.length > 0 && (
+  {(vouchedBy.length > 0 || repoVouches.length > 0) && (
     <>
-      <h2 class="section-title">vouched for by {vouchedBy.length} dev{vouchedBy.length > 1 ? 's' : ''}</h2>
-      <p>{vouchedBy.map((v) => <a class="chip" href={`/u/${v.voucher}`} title={v.note}>{v.voucher}</a>)}</p>
+      <h2 class="section-title">vouched for by {vouchedBy.length + repoVouches.length} {vouchedBy.length + repoVouches.length > 1 ? 'devs & projects' : 'project'}</h2>
+      <p>
+        {vouchedBy.map((v) => <a class="chip" href={`/u/${v.voucher}`} title={v.note}>{v.voucher}</a>)}
+        {repoVouches.map((v) => <a class="chip chip-good" href={`https://github.com/${v.repo}`} target="_blank" rel="noopener" title={v.note}>📦 {v.repo}</a>)}
+      </p>
+    </>
+  )}
+
+  {denounced.length > 0 && (
+    <>
+      <h2 class="section-title" style="color:#ff8c8c">⚠ denounced by {denounced.length} project{denounced.length > 1 ? 's' : ''}</h2>
+      <p>
+        {denounced.map((v) => <a class="chip chip-bad" href={`https://github.com/${v.repo}`} target="_blank" rel="noopener" title={v.note}>{v.repo}</a>)}
+        <span class="sub" style="display:block;margin-top:6px">from public <span class="mono">VOUCHED.td</span> files — <a href="/denounced">about denouncements</a></span>
+      </p>
     </>
   )}
 
@@ -124,8 +139,11 @@ const av = user.avatarUrl ? `${user.avatarUrl}${user.avatarUrl.includes('?') ? '
         if (!web || !web.followers.length) return;
         const section = document.getElementById('follower-web-section');
         section.classList.remove('hidden');
+        const outside = web.totalFollowers != null ? web.totalFollowers - web.inNetwork : null;
         document.getElementById('web-sub').textContent =
-          `${web.inNetwork.toLocaleString()} ranked devs follow ${login} — closest to the center = highest vouchrank. click to explore.`;
+          `${web.inNetwork.toLocaleString()} ranked devs follow ${login}` +
+          (outside != null && outside > 0 ? ` (+${outside.toLocaleString()} followers outside the rankings)` : '') +
+          ` — bigger & closer to the center = higher vouchrank. click to explore.`;
         const fs = web.followers;
         const W = Math.min(960, document.getElementById('follower-web').clientWidth || 960);
         const GA = Math.PI * (3 - Math.sqrt(5));
@@ -139,7 +157,7 @@ const av = user.avatarUrl ? `${user.avatarUrl}${user.avatarUrl.includes('?') ? '
         const nodes = fs.map((f, i) => {
           const r = spread * Math.sqrt(i + 1.5);
           const a = i * GA;
-          const size = Math.max(18, 40 - Math.sqrt(i) * 2.4);
+          const size = 14 + ((f.score ?? 0) / 1000) * 30; // scaled by vouchrank score
           return { f, x: cx + r * Math.cos(a), y: cy + (r * Math.sin(a) * (H / (2 * maxR))), size };
         });
         document.getElementById('follower-web').innerHTML = `
@@ -149,6 +167,9 @@ const av = user.avatarUrl ? `${user.avatarUrl}${user.avatarUrl.includes('?') ? '
               <a href="${n.f.rank && n.f.rank <= 1000 ? `/u/${esc(n.f.login)}` : `https://github.com/${esc(n.f.login)}`}">
                 <image href="${esc(av(n.f, 64))}" x="${n.x - n.size / 2}" y="${n.y - n.size / 2}" width="${n.size}" height="${n.size}"
                   style="clip-path:circle(50%)" loading="lazy"/>
+                ${n.f.score != null ? `<text x="${n.x}" y="${n.y + n.size / 2 + 8}" text-anchor="middle"
+                  font-family="ui-monospace,Menlo,monospace" font-size="${Math.max(7, n.size / 4)}"
+                  fill="#2ee6ff" fill-opacity="0.85">${n.f.score}</text>` : ''}
                 <title>${esc(n.f.login)}${n.f.rank ? ` · contrib #${n.f.rank.toLocaleString()}` : ''}${n.f.score != null ? ` · vouch ${n.f.score}` : ''}</title>
               </a>`).join('')}
             <circle cx="${cx}" cy="${cy}" r="34" fill="#06070e" stroke="#b6ff2e" stroke-width="2.5"/>
