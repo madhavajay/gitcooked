@@ -28,9 +28,11 @@ const ogUrl = new URL(og, Astro.site ?? 'https://gitcooked.dev');
         <a href="/global">global</a>
         <a href="/#countries">countries</a>
         <a href="/network">network</a>
-        <a href="/clusters">clusters</a>
+        <a href="/clusters">repos</a>
+        <a href="/vouchrank">vouchrank</a>
         <a href="/tokens">tokens</a>
         <a href="/u">am i ranked?</a>
+        <a href="#" id="nav-auth"></a>
       </div>
     </nav>
     <main>
@@ -60,6 +62,55 @@ const ogUrl = new URL(og, Astro.site ?? 'https://gitcooked.dev');
       document.querySelectorAll('.stat .num').forEach((el) => {
         if (/^[#]?[\d,]+$/.test(el.textContent.trim())) io.observe(el);
       });
+
+      // --- identity: sign in (OAuth when API is live, cookie fallback) + highlight my rows ---
+      const API = 'https://api.gitcooked.dev';
+      const getUser = () => document.cookie.match(/(?:^|;\s*)gc_user=([^;]+)/)?.[1] ?? null;
+      const setUser = (login) => { document.cookie = `gc_user=${login}; path=/; max-age=${365 * 86400}`; };
+      const navAuth = document.getElementById('nav-auth');
+
+      // returning from OAuth: /u/{login}?claimed=1
+      const params = new URLSearchParams(location.search);
+      if (params.get('claimed') === '1') {
+        const m = /^\/u\/([\w-]+)/.exec(location.pathname);
+        if (m) setUser(m[1]);
+      }
+
+      function highlightMe() {
+        const u = getUser()?.toLowerCase();
+        if (!u) return;
+        document.querySelectorAll('.rank-table td a[href]').forEach((a) => {
+          const login = a.getAttribute('href')?.split('/').filter(Boolean).pop()?.toLowerCase();
+          if (login === u) a.closest('tr')?.classList.add('me');
+        });
+      }
+      window.gcUser = getUser;
+      window.gcHighlightMe = highlightMe;
+
+      function renderAuth() {
+        const u = getUser();
+        navAuth.textContent = u ? `@${u}` : 'sign in';
+        navAuth.href = u ? `/u/${u}` : '#';
+        navAuth.classList.toggle('nav-me', !!u);
+      }
+      navAuth.addEventListener('click', async (e) => {
+        if (getUser()) return;
+        e.preventDefault();
+        try {
+          const ctrl = new AbortController();
+          setTimeout(() => ctrl.abort(), 1500);
+          const r = await fetch(`${API}/api/health`, { signal: ctrl.signal });
+          if (r.ok) { location.href = `${API}/api/auth/login`; return; }
+        } catch { /* api not deployed yet */ }
+        const login = prompt('your GitHub username? (full GitHub sign-in arrives when the API goes live)');
+        if (login?.trim()) {
+          setUser(login.trim());
+          renderAuth();
+          highlightMe();
+        }
+      });
+      renderAuth();
+      highlightMe();
     </script>
   </body>
 </html>

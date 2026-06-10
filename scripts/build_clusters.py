@@ -133,6 +133,47 @@ def main():
             ensure_ascii=False,
         )
     )
+
+    # top repos by ranked contributors, with vouchrank totals
+    vouch = {}
+    vr_path = ROOT / "site" / "public" / "data" / "vouchrank.json"
+    if vr_path.exists():
+        vouch = {l: v[1] for l, v in json.loads(vr_path.read_text())["users"].items()}
+    repo_meta = {}
+    for rec in users.values():
+        for kind in ("owned", "contributed"):
+            for r in rec.get(kind) or []:
+                m = repo_meta.setdefault(r["repo"], {"stars": 0, "lang": None})
+                m["stars"] = max(m["stars"], r.get("stars") or 0)
+                m["lang"] = m["lang"] or r.get("lang")
+    top_repos = []
+    for repo, members in repo_users.items():
+        if len(members) < 2:
+            continue
+        ms = sorted(members, key=lambda u: ranked[u]["rank"])
+        top_repos.append(
+            {
+                "repo": repo,
+                "stars": repo_meta.get(repo, {}).get("stars", 0),
+                "lang": repo_meta.get(repo, {}).get("lang"),
+                "memberCount": len(members),
+                "vouchScore": sum(vouch.get(u, 0) for u in members),
+                "members": [
+                    {"login": u, "rank": ranked[u]["rank"], "avatarUrl": ranked[u].get("avatarUrl") or "", "vouch": vouch.get(u, 0)}
+                    for u in ms[:12]
+                ],
+            }
+        )
+    top_repos.sort(key=lambda r: (-r["memberCount"], -r["vouchScore"]))
+    (DATA / "repos_top.json").write_text(
+        json.dumps({"indexedUsers": len(users), "repos": top_repos[:300]}, ensure_ascii=False)
+    )
+    pub = ROOT / "site" / "public" / "data"
+    pub.mkdir(parents=True, exist_ok=True)
+    (pub / "repo_members.json").write_text(
+        json.dumps({r["repo"]: sorted(repo_users[r["repo"]]) for r in top_repos}, ensure_ascii=False)
+    )
+    print(f"{len(top_repos)} shared repos -> repos_top.json (top 300 kept) + repo_members.json")
     print(f"{len(users)} users indexed, {len(adj)} connected, {len(clusters)} clusters -> {OUT}")
     for c in clusters[:8]:
         print(f"  [{c['size']:>3}] {c['label']:<24} {', '.join(m['login'] for m in c['members'][:5])}")

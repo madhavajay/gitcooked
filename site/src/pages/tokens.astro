@@ -4,9 +4,10 @@ import community from '../data/community.json';
 
 const byUser = {};
 for (const row of community.aiUsage) {
-  const u = (byUser[row.login] ??= { login: row.login, total: 0, providers: {} });
+  const u = (byUser[row.login] ??= { login: row.login, total: 0, cost: 0, providers: {} });
   const t = row.inputTokens + row.outputTokens;
   u.total += t;
+  u.cost += row.costUSD ?? 0;
   u.providers[row.provider] = (u.providers[row.provider] ?? 0) + t;
 }
 const board = Object.values(byUser).sort((a, b) => b.total - a.total).slice(0, 100);
@@ -36,13 +37,14 @@ const fmt = (n) => (n >= 1e9 ? (n / 1e9).toFixed(1) + 'B' : n >= 1e6 ? (n / 1e6)
     </div>
   ) : (
     <table class="rank-table">
-      <thead><tr><th>#</th><th>user</th><th>providers</th><th style="text-align:right">tokens</th></tr></thead>
+      <thead><tr><th>#</th><th>user</th><th>providers</th><th style="text-align:right">burn</th><th style="text-align:right">tokens</th></tr></thead>
       <tbody>
         {board.map((u, i) => (
           <tr class={i < 10 ? `t10 r${i < 3 ? i + 1 : ''}` : ''}>
             <td class="rank">{i + 1}</td>
             <td><a href={`/u/${u.login}`}>{u.login}</a></td>
             <td class="meta">{Object.entries(u.providers).map(([p, t]) => <span class="chip">{p} {fmt(t)}</span>)}</td>
+            <td class="num">{u.cost > 0 ? `$${Math.round(u.cost).toLocaleString()}` : '—'}</td>
             <td class="num">{fmt(u.total)}</td>
           </tr>
         ))}

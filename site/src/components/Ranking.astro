@@ -86,6 +86,7 @@ const av = (u, s) => u.avatarUrl ? `${u.avatarUrl}${u.avatarUrl.includes('?') ? 
     renderTable(loaded[mode].slice(0, shown));
     moreBtn.classList.toggle('hidden', shown >= total());
     moreBtn.textContent = `show more (${Math.min(shown, total()).toLocaleString()} of ${total().toLocaleString()})`;
+    window.gcHighlightMe?.();
   }
 
   moreBtn.addEventListener('click', async () => {

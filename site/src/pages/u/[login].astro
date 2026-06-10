@@ -2,6 +2,7 @@
 import Layout from '../../layouts/Layout.astro';
 import global from '../../data/global.json';
 import community from '../../data/community.json';
+import profilesMeta from '../../data/profiles_meta.json';
 
 export async function getStaticPaths() {
   const files = import.meta.glob('../../data/locations/*.json', { eager: true });
@@ -27,12 +28,13 @@ export async function getStaticPaths() {
       },
       local: (localRanks[u.login] ?? []).sort((a, b) => a.rank - b.rank),
       vouchedBy: community.vouches[u.login] ?? [],
-      socials: community.socials[u.login] ?? {},
+      socials: { ...(profilesMeta[u.login]?.socials ?? {}), ...(community.socials[u.login] ?? {}) },
+      email: profilesMeta[u.login]?.email ?? null,
     },
   }));
 }
 
-const { user, ranks, local, vouchedBy, socials } = Astro.props;
+const { user, ranks, local, vouchedBy, socials, email } = Astro.props;
 const av = user.avatarUrl ? `${user.avatarUrl}${user.avatarUrl.includes('?') ? '&' : '?'}s=240` : '';
 ---
 <Layout title={`${user.login} — gitcooked`} og={`/og/u/${user.login}.jpg`} description={`${user.login} is ranked #${ranks.commits} globally on gitcooked.`}>
@@ -43,6 +45,11 @@ const av = user.avatarUrl ? `${user.avatarUrl}${user.avatarUrl.includes('?') ? '
       <p class="sub" style="margin:4px 0 0">{user.name}{user.company ? ` · ${user.company}` : ''}</p>
       <a href={`https://github.com/${user.login}`} target="_blank" rel="noopener" class="mono">github.com/{user.login} ↗</a>
       · <a href={`/network?u=${user.login}`} class="mono">view network →</a>
+      <span id="distance-link"></span>
+      <div class="contact-row">
+        {email && <a class="chip" href={`mailto:${email}`}>✉ {email}</a>}
+        {Object.entries(socials).map(([k, v]) => <a class="chip" href={v} target="_blank" rel="noopener">{k}</a>)}
+      </div>
     </div>
   </div>
 
@@ -74,13 +81,6 @@ const av = user.avatarUrl ? `${user.avatarUrl}${user.avatarUrl.includes('?') ? '
     </>
   )}
 
-  {Object.keys(socials).length > 0 && (
-    <>
-      <h2 class="section-title">links</h2>
-      <p>{Object.entries(socials).map(([k, v]) => <a class="chip" href={v} target="_blank" rel="noopener">{k}</a>)}</p>
-    </>
-  )}
-
   {vouchedBy.length > 0 && (
     <>
       <h2 class="section-title">vouched for by {vouchedBy.length} dev{vouchedBy.length > 1 ? 's' : ''}</h2>
@@ -104,6 +104,13 @@ const av = user.avatarUrl ? `${user.avatarUrl}${user.avatarUrl.includes('?') ? '
   <script>
     const login = location.pathname.split('/').filter(Boolean).pop();
     const API = 'https://api.gitcooked.dev';
+
+    // degrees-of-separation link when signed in (item: distance from you)
+    const me = document.cookie.match(/(?:^|;\s*)gc_user=([^;]+)/)?.[1];
+    if (me && me.toLowerCase() !== login.toLowerCase()) {
+      document.getElementById('distance-link').innerHTML =
+        ` · <a class="mono" href="/network?u=${me}&path=${login}">degrees from you →</a>`;
+    }
     fetch(`${API}/api/profile/${login}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((p) => {
@@ -130,4 +137,5 @@ const av = user.avatarUrl ? `${user.avatarUrl}${user.avatarUrl.includes('?') ? '
     background: var(--bg-soft); border: 1px solid var(--line); border-radius: 10px;
     padding: 12px 16px; overflow-x: auto; font-size: 13px; color: var(--cyan);
   }
+  .contact-row { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
 </style>

@@ -1,0 +1,91 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+<Layout title="VouchRank — gitcooked" description="A PageRank-style trust score over the GitHub follow graph. Who do the most cooked devs actually pay attention to?">
+  <h1 class="glow">VouchRank</h1>
+  <p class="sub">
+    follows are vouches. VouchRank runs PageRank over who-follows-whom among the most active
+    committers on GitHub — attention from highly-ranked devs is worth more, and it flows
+    through the graph, so bot followers that nobody follows are worth ~nothing.
+  </p>
+
+  <input class="filter-box" id="vr-input" type="search" placeholder="github username…" autocomplete="off" autofocus />
+  <div id="vr-result"></div>
+
+  <h2 class="section-title">top 50</h2>
+  <table class="rank-table"><thead>
+    <tr><th>#</th><th>user</th><th>followers</th><th style="text-align:right">score</th></tr>
+  </thead><tbody id="vr-board"></tbody></table>
+
+  <h2 class="section-title">how it's calculated</h2>
+  <div class="vr-method">
+    <ol>
+      <li>we crawl the follow graph of the ~38k ranked committers (top 1000 global + top 25 of every country, then their networks)</li>
+      <li>every follow is a directed edge: <span class="mono">you → person you follow</span> = a vouch</li>
+      <li>PageRank (damping 0.85) runs over that graph, with the restart vector weighted by contribution ranking (<span class="mono">1/√rank</span>) — so attention from top committers seeds more trust</li>
+      <li>your score is what flows to you, log-scaled to 0–1000 against the #1 dev</li>
+    </ol>
+    <p class="sub">you can't game it with follower bots: a vouch only carries weight if the voucher is vouched for. share your score: <span class="mono">gitcooked.dev/vouchrank?u=YOU</span></p>
+  </div>
+
+  <script>
+    const input = document.getElementById('vr-input');
+    const result = document.getElementById('vr-result');
+    const board = document.getElementById('vr-board');
+    let DATA = null;
+
+    const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const fmt = (n) => (n == null ? '—' : n.toLocaleString());
+
+    async function load() {
+      DATA = await fetch('/data/vouchrank.json').then((r) => r.json());
+      const entries = Object.entries(DATA.users).sort((a, b) => a[1][0] - b[1][0]);
+      board.innerHTML = entries.slice(0, 50).map(([login, [vrRank, score, followers]]) => `
+        <tr class="${vrRank <= 10 ? `t10 r${vrRank <= 3 ? vrRank : ''}` : ''}">
+          <td class="rank">${vrRank}</td>
+          <td><a href="/vouchrank?u=${esc(login)}">${esc(login)}</a></td>
+          <td class="meta">${fmt(followers)}</td>
+          <td class="num">${score}</td>
+        </tr>`).join('');
+      const u = new URLSearchParams(location.search).get('u');
+      if (u) { input.value = u; show(u); }
+    }
+
+    function show(login) {
+      const hit = Object.entries(DATA.users).find(([l]) => l.toLowerCase() === login.toLowerCase());
+      if (!hit) {
+        result.innerHTML = `<p class="sub">${esc(login)} isn't in the crawled graph yet — it grows daily.
+          <a href="/u">check your contribution rank instead →</a></p>`;
+        return;
+      }
+      const [name, [vrRank, score, followers, following, contribRank]] = hit;
+      const pct = Math.max(1, Math.round((vrRank / Object.keys(DATA.users).length) * 100));
+      history.replaceState(null, '', `?u=${name}`);
+      result.innerHTML = `
+        <div class="stats-row" style="margin-top:22px">
+          <div class="stat"><div class="num">${score}</div><div class="label">vouchrank score</div></div>
+          <div class="stat"><div class="num">#${vrRank.toLocaleString()}</div><div class="label">of ${Object.keys(DATA.users).length.toLocaleString()} · top ${pct}%</div></div>
+          <div class="stat"><div class="num">${fmt(followers)}</div><div class="label">followers</div></div>
+          <div class="stat"><div class="num">${fmt(following)}</div><div class="label">following</div></div>
+          ${contribRank ? `<div class="stat"><div class="num">#${contribRank.toLocaleString()}</div><div class="label">contribution rank</div></div>` : ''}
+        </div>
+        <p><a href="/network?u=${esc(name)}">see ${esc(name)}'s network →</a></p>`;
+    }
+
+    const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+    input.addEventListener('input', debounce(() => {
+      const q = input.value.trim();
+      if (q && DATA) show(q);
+    }, 250));
+
+    load();
+  </script>
+
+  <style>
+    .vr-method {
+      border: 1px solid var(--line); border-radius: 16px; padding: 8px 26px 16px;
+      background: var(--panel); max-width: 720px;
+    }
+    .vr-method li { margin: 8px 0; color: var(--text); }
+  </style>
+</Layout>

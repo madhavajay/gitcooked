@@ -136,6 +136,12 @@ table.rank-table { width: 100%; border-collapse: collapse; font-size: 14px; marg
 .rank-table tr.r2 .avatar { border-color: var(--cyan); box-shadow: 0 0 16px #2ee6ff55; }
 .rank-table tr.r3 .rank { color: var(--magenta); text-shadow: 0 0 12px #ff3df299; }
 .rank-table tr.r3 .avatar { border-color: var(--magenta); box-shadow: 0 0 16px #ff3df255; }
+.rank-table tr.me td {
+  background: linear-gradient(90deg, #b6ff2e14, #b6ff2e08);
+  border-top: 1px solid #b6ff2e66; border-bottom: 1px solid #b6ff2e66;
+}
+.rank-table tr.me .rank { color: var(--lime); text-shadow: 0 0 10px #b6ff2e88; }
+.nav-me { color: var(--lime) !important; text-shadow: 0 0 10px #b6ff2e66; }
 .rank-table th {
   text-align: left; color: var(--muted); font-size: 11px; text-transform: uppercase;
   letter-spacing: 1px; padding: 10px 12px; border-bottom: 1px solid var(--line);

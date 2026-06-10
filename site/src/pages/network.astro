@@ -18,12 +18,14 @@ import Layout from '../layouts/Layout.astro';
     <input class="filter-box" id="net-country" list="country-list" placeholder="filter countries… (add 1+)" autocomplete="off" />
     <datalist id="country-list"></datalist>
     <span id="country-chips"></span>
-    <label class="slider-label">top <span id="rank-cap-val">3,000</span> by rank
-      <input type="range" id="rank-cap" min="100" max="8000" step="100" value="3000" />
+    <label class="slider-label">top
+      <input type="number" class="num-box" id="rank-cap" min="10" max="8000" step="10" value="100" /> by rank
     </label>
-    <label class="slider-label">min <span id="min-followers-val">0</span> followers
-      <input type="range" id="min-followers" min="0" max="100" step="1" value="0" />
+    <label class="slider-label">min
+      <input type="number" class="num-box" id="min-followers" min="0" step="10" value="100" /> followers
     </label>
+    <input class="filter-box" id="net-repo" list="repo-list" placeholder="repo contributors…" autocomplete="off" style="max-width:200px" />
+    <datalist id="repo-list"></datalist>
     <button class="tab" id="net-loners" title="hide nodes with no visible links in the current view">hide unlinked</button>
     <label class="slider-label">right-click removes
       <select id="hide-hops" class="tab" style="cursor:pointer">
@@ -37,12 +39,20 @@ import Layout from '../layouts/Layout.astro';
   <p class="sub" id="net-status"></p>
   <div id="net-sim" class="hidden" style="color:var(--magenta);font-weight:700;letter-spacing:2px">⚠ SIMULATED DATA — for UI testing only</div>
 
-  <div id="graph"></div>
+  <div id="graph-wrap">
+    <div id="graph"></div>
+    <div id="stats-panel" class="hidden">
+      <button id="stats-close">×</button>
+      <img id="stats-avatar" />
+      <div id="stats-body"></div>
+    </div>
+  </div>
 
   <script>
     import ForceGraph3D from '3d-force-graph';
     import * as THREE from 'three';
     import countries from '../geo/countries.json';
+    import land from '../geo/land.json';
 
     const REGION_COLORS = {
       'Africa': '#b6ff2e', 'Asia': '#ff3df2', 'Europe': '#2ee6ff',
@@ -233,16 +243,53 @@ import Layout from '../layouts/Layout.astro';
       try { Graph.d3ReheatSimulation(); } catch { /* engine not ready yet */ }
     }
 
+    // ---- earth backdrop for geo layout ----
+    let earthPlane = null;
+    function makeEarthPlane() {
+      const W = 1440, H = 720;
+      const c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#0c1024';
+      ctx.strokeStyle = 'rgba(46,230,255,0.35)';
+      ctx.lineWidth = 1;
+      for (const poly of land) {
+        const ring = poly[0];
+        ctx.beginPath();
+        for (let i = 0; i < ring.length; i++) {
+          const x = ((ring[i][0] + 180) / 360) * W;
+          const y = ((90 - ring[i][1]) / 180) * H;
+          i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(360 * 4, 180 * 4),
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.45, depthWrite: false })
+      );
+      mesh.position.z = -10;
+      mesh.visible = false;
+      return mesh;
+    }
+
     // ---- filters ----
     const filterCountries = new Set();
-    let rankCap = 3000;
-    let minFollowers = 0;
+    let rankCap = 100;
+    let minFollowers = 100;
+    let repoMembers = null; // login set when repo filter active
+    let repoName = null;
+    let REPO_INDEX = null;
     let hideLoners = false;
     const hiddenSet = new Set();
     let hideHops = 0;
 
     function filteredNodes() {
       let nodes = DATA.nodes.filter((n) => !hiddenSet.has(n.id));
+      if (repoMembers) return nodes.filter((n) => repoMembers.has(n.login)); // repo view: exact member set
       if (filterCountries.size) nodes = nodes.filter((n) => filterCountries.has(n.country));
       if (minFollowers > 0) nodes = nodes.filter((n) => (n.followers ?? 0) >= minFollowers);
       return nodes.slice(0, rankCap); // nodes are pre-sorted by rank
@@ -255,8 +302,12 @@ import Layout from '../layouts/Layout.astro';
     }
 
     function fullView() {
-      highlightSet = new Set();
+      // repo view keeps its member set lit up
+      highlightSet = repoMembers
+        ? new Set(DATA.nodes.filter((n) => repoMembers.has(n.login)).map((n) => n.id))
+        : new Set();
       focusSet = null;
+      document.getElementById('stats-panel').classList.add('hidden');
       let nodes = filteredNodes();
       let keep = new Set(nodes.map((n) => n.id));
       let links = DATA.links.filter(([a, b]) => keep.has(a) && keep.has(b));
@@ -269,12 +320,35 @@ import Layout from '../layouts/Layout.astro';
       }
       render(nodes, links);
       const filters = [
-        filterCountries.size ? [...filterCountries].map((s) => s.replace(/_/g, ' ')).join(' + ') : null,
-        minFollowers > 0 ? `≥${minFollowers.toLocaleString()} followers` : null,
+        repoName ? `contributors to ${repoName}` : null,
+        !repoName && filterCountries.size ? [...filterCountries].map((s) => s.replace(/_/g, ' ')).join(' + ') : null,
+        !repoName && minFollowers > 0 ? `≥${minFollowers.toLocaleString()} followers` : null,
         hideLoners ? 'unlinked hidden' : null,
         hiddenSet.size ? `${hiddenSet.size} removed` : null,
       ].filter(Boolean).join(' · ');
       status.textContent = `showing ${nodes.length.toLocaleString()} of ${DATA.nodes.length.toLocaleString()} connected devs${filters ? ` (${filters})` : ''} · ${links.length.toLocaleString()} edges · purple links = mutual follows · zoom in for faces · right-click removes`;
+    }
+
+    let vouchData = null;
+    async function showStats(node, directCount) {
+      const panel = document.getElementById('stats-panel');
+      const flag = flagEmoji(node.country);
+      if (!vouchData) vouchData = await fetch('/data/vouchrank.json').then((r) => r.json()).catch(() => ({ users: {} }));
+      const vr = vouchData.users[node.login];
+      document.getElementById('stats-avatar').src = node.avatarUrl ? `${node.avatarUrl}${node.avatarUrl.includes('?') ? '&' : '?'}s=128` : '';
+      document.getElementById('stats-body').innerHTML = `
+        <div class="sp-login">${node.login} ${flag ?? ''}</div>
+        <div class="sp-row"><span>global rank</span><b>#${node.rank.toLocaleString()}</b></div>
+        <div class="sp-row"><span>contributions</span><b>${node.contributions.toLocaleString()}</b></div>
+        ${node.followers != null ? `<div class="sp-row"><span>followers</span><b>${node.followers.toLocaleString()}</b></div>` : ''}
+        <div class="sp-row"><span>connections here</span><b>${directCount}</b></div>
+        ${vr ? `<div class="sp-row"><span>vouchrank</span><b>${vr[1]} <span style="color:var(--muted)">(#${vr[0]})</span></b></div>` : ''}
+        <div class="sp-links">
+          ${node.rank <= 1000 ? `<a href="/u/${node.login}">rank card</a> · ` : ''}
+          <a href="/vouchrank?u=${node.login}">vouchrank</a> ·
+          <a href="https://github.com/${node.login}" target="_blank" rel="noopener">github ↗</a>
+        </div>`;
+      panel.classList.remove('hidden');
     }
 
     function egoView(login) {
@@ -288,10 +362,35 @@ import Layout from '../layouts/Layout.astro';
       const nodes = DATA.nodes.filter((n) => keep.has(n.id));
       render(nodes, links);
       nodes.filter((n) => dist.get(n.id) <= 1).forEach(loadFace);
-      status.textContent = `${node.login}: ${[...dist.values()].filter((d) => d === 1).length} direct connections, ${keep.size - 1} within 2 hops`;
+      const directCount = [...dist.values()].filter((d) => d === 1).length;
+      status.textContent = `${node.login}: ${directCount} direct connections, ${keep.size - 1} within 2 hops`;
+      showStats(node, directCount);
       setTimeout(() => {
         try { Graph.zoomToFit(1000, 60, (n) => dist.get(n.id) <= 1); } catch {}
       }, 1600);
+    }
+
+    async function loadRepoIndex() {
+      if (!REPO_INDEX) {
+        REPO_INDEX = await fetch('/data/repo_members.json').then((r) => r.json()).catch(() => ({}));
+        const dl = document.getElementById('repo-list');
+        for (const repo of Object.keys(REPO_INDEX)) {
+          const o = document.createElement('option');
+          o.value = repo;
+          dl.appendChild(o);
+        }
+      }
+      return REPO_INDEX;
+    }
+
+    function repoView(repo) {
+      const members = REPO_INDEX?.[repo];
+      if (!members) { status.textContent = `no contributor data for ${repo}`; return; }
+      repoName = repo;
+      repoMembers = new Set(members);
+      fullView();
+      Graph.graphData().nodes.forEach(loadFace);
+      setTimeout(() => { try { Graph.zoomToFit(1000, 80); } catch {} }, 1500);
     }
 
     function bfsDist(srcId, maxDepth = 6) {
@@ -366,14 +465,28 @@ import Layout from '../layouts/Layout.astro';
         .width(el.clientWidth)
         .height(el.clientHeight);
 
+      earthPlane = makeEarthPlane();
+      Graph.scene().add(earthPlane);
+
       const params = new URLSearchParams(location.search);
       const u = params.get('u');
-      if (u && byLogin.has(u.toLowerCase())) {
+      const pathTo = params.get('path');
+      const repo = params.get('repo');
+      if (repo) {
+        await loadRepoIndex();
+        document.getElementById('net-repo').value = repo;
+        repoView(repo);
+      } else if (u && pathTo && byLogin.has(u.toLowerCase()) && byLogin.has(pathTo.toLowerCase())) {
+        document.getElementById('net-user').value = u;
+        document.getElementById('net-path').value = pathTo;
+        pathView(u, pathTo);
+      } else if (u && byLogin.has(u.toLowerCase())) {
         document.getElementById('net-user').value = u;
         egoView(u);
       } else {
         fullView();
       }
+      loadRepoIndex(); // populate the datalist in the background
     }
 
     document.getElementById('net-user').addEventListener('change', (e) => {
@@ -388,12 +501,16 @@ import Layout from '../layouts/Layout.astro';
     document.getElementById('net-geo').addEventListener('click', (e) => {
       geoMode = !geoMode;
       e.target.classList.toggle('active', geoMode);
+      if (earthPlane) earthPlane.visible = geoMode;
       applyGeo();
     });
     document.getElementById('net-reset').addEventListener('click', () => {
       document.getElementById('net-user').value = '';
       document.getElementById('net-path').value = '';
       document.getElementById('net-country').value = '';
+      document.getElementById('net-repo').value = '';
+      repoName = null;
+      repoMembers = null;
       filterCountries.clear();
       hiddenSet.clear();
       updateUnhideBtn();
@@ -444,30 +561,60 @@ import Layout from '../layouts/Layout.astro';
 
     const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
     document.getElementById('rank-cap').addEventListener('input', debounce((e) => {
-      rankCap = Number(e.target.value);
-      document.getElementById('rank-cap-val').textContent = rankCap.toLocaleString();
+      rankCap = Math.max(10, Number(e.target.value) || 100);
       fullView();
-    }, 250));
+    }, 350));
     document.getElementById('min-followers').addEventListener('input', debounce((e) => {
-      // log scale: 0..100 -> 0..~10k
-      const v = Number(e.target.value);
-      minFollowers = v === 0 ? 0 : Math.round(Math.pow(10, v / 25));
-      document.getElementById('min-followers-val').textContent = minFollowers.toLocaleString();
+      minFollowers = Math.max(0, Number(e.target.value) || 0);
       fullView();
-    }, 250));
+    }, 350));
+    document.getElementById('net-repo').addEventListener('change', async (e) => {
+      const repo = e.target.value.trim();
+      if (!repo) { repoName = null; repoMembers = null; fullView(); return; }
+      await loadRepoIndex();
+      repoView(repo);
+    });
+    document.getElementById('stats-close').addEventListener('click', () =>
+      document.getElementById('stats-panel').classList.add('hidden')
+    );
 
     init();
   </script>
 
   <style>
+    #graph-wrap { position: relative; margin-top: 14px; }
     #graph {
       height: 70vh;
       border: 1px solid var(--line);
       border-radius: 16px;
       overflow: hidden;
-      margin-top: 14px;
       box-shadow: 0 0 40px #8a5cff18;
     }
+    #stats-panel {
+      position: absolute; top: 14px; right: 14px; z-index: 5; width: 230px;
+      background: #0c0e1aee; border: 1px solid var(--line); border-radius: 14px;
+      padding: 16px; backdrop-filter: blur(8px); box-shadow: 0 0 24px #2ee6ff22;
+    }
+    #stats-close {
+      position: absolute; top: 6px; right: 10px; background: none; border: none;
+      color: var(--muted); font-size: 18px; cursor: pointer;
+    }
+    #stats-avatar {
+      width: 64px; height: 64px; border-radius: 50%;
+      border: 2px solid var(--violet); box-shadow: 0 0 16px #8a5cff55;
+    }
+    #stats-panel .sp-login { font-weight: 700; font-size: 16px; margin: 8px 0 10px; }
+    #stats-panel .sp-row {
+      display: flex; justify-content: space-between; font-size: 12px;
+      color: var(--muted); padding: 3px 0; border-bottom: 1px solid #14182e;
+    }
+    #stats-panel .sp-row b { color: var(--cyan); font-family: ui-monospace, Menlo, monospace; }
+    #stats-panel .sp-links { margin-top: 10px; font-size: 12px; }
+    .num-box {
+      width: 70px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--bg-soft); color: var(--cyan); font-family: ui-monospace, Menlo, monospace;
+    }
+    .num-box:focus { border-color: var(--cyan); outline: none; }
     .net-controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 14px 0 4px; }
     .net-controls .filter-box { max-width: 280px; }
     #net-country { max-width: 220px; }
