@@ -124,9 +124,21 @@ const av = (u, s) => u.avatarUrl ? `${u.avatarUrl}${u.avatarUrl.includes('?') ? 
         result.innerHTML = `<p class="sub">${esc(login)} isn't in the crawled graph yet — it grows daily. <a href="/u">check your contribution rank →</a></p>`;
         return false;
       }
-      const [name, [vrRank, score, followers, following, contribRank, indeg]] = hit;
+      const [name, [vrRank, score, followers, following, contribRank, indeg, depths, endorsers]] = hit;
       const pct = Math.max(1, Math.round((vrRank / Object.keys(lookup.users).length) * 100));
       history.replaceState(null, '', `?u=${name}`);
+      const DCOLORS = ['#7b84ad', '#2ee6ff', '#8a5cff', '#ff3df2', '#ffb02e', '#1c2140'];
+      const DLABELS = ['your seed (contribution rank)', '1st degree — direct followers', '2nd degree', '3rd degree', '4th degree', 'deeper echoes'];
+      let breakdown = '';
+      if (depths) {
+        const pts = depths.map((pm) => score * pm / 1000);
+        breakdown = `
+          <div class="vr-bar">${depths.map((pm, i) => pm > 2 ? `<span style="width:${pm / 10}%;background:${DCOLORS[i]}"></span>` : '').join('')}</div>
+          <div class="vr-legend">${depths.map((pm, i) => pm > 2 ? `
+            <span><i style="background:${DCOLORS[i]}"></i>${DLABELS[i]}: <b>${pts[i] < 1 ? '<1' : Math.round(pts[i])} pts</b> (${(pm / 10).toFixed(0)}%)</span>` : '').join('')}
+          </div>
+          ${endorsers?.length ? `<p class="sub">biggest vouches: ${endorsers.map(([l, pm]) => `<a href="?u=${esc(l)}">@${esc(l)}</a> <b class="mono" style="color:var(--cyan)">+${(pm / 10).toFixed(1)}%</b>`).join(' · ')}</p>` : ''}`;
+      }
       result.innerHTML = `
         <div class="stats-row" style="margin-top:22px">
           <div class="stat"><div class="num">${score}</div><div class="label">vouchrank score</div></div>
@@ -135,8 +147,9 @@ const av = (u, s) => u.avatarUrl ? `${u.avatarUrl}${u.avatarUrl.includes('?') ? 
           ${following != null ? `<div class="stat"><div class="num">${fmt(following)}</div><div class="label">following</div></div>` : ''}
           ${contribRank ? `<div class="stat"><div class="num">#${fmt(contribRank)}</div><div class="label">contribution rank</div></div>` : ''}
         </div>
+        ${breakdown}
         ${followers == null ? `<p class="sub">this profile hasn't been crawled yet — the score comes from ${fmt(indeg)} known in-network followers.</p>` : ''}
-        <p><a href="/network?u=${esc(name)}">see ${esc(name)}'s network →</a></p>`;
+        <p>${contribRank && contribRank <= 1000 ? `<a href="/u/${esc(name)}#web">follower web →</a> · ` : ''}<a href="/network?u=${esc(name)}">3D network →</a></p>`;
       return true;
     }
 
@@ -155,6 +168,16 @@ const av = (u, s) => u.avatarUrl ? `${u.avatarUrl}${u.avatarUrl.includes('?') ? 
     update();
   </script>
 
+  <style is:global>
+    .vr-bar {
+      display: flex; height: 14px; border-radius: 999px; overflow: hidden;
+      border: 1px solid var(--line); margin: 6px 0 10px; max-width: 720px;
+    }
+    .vr-bar span { display: block; height: 100%; }
+    .vr-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+    .vr-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
+    .vr-legend b { color: var(--text); }
+  </style>
   <style>
     .vr-method {
       border: 1px solid var(--line); border-radius: 16px; padding: 8px 26px 16px;

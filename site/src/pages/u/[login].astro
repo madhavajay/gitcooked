@@ -88,6 +88,12 @@ const av = user.avatarUrl ? `${user.avatarUrl}${user.avatarUrl.includes('?') ? '
     </>
   )}
 
+  <div id="follower-web-section" class="hidden">
+    <h2 class="section-title" id="web">follower web</h2>
+    <p class="sub" id="web-sub"></p>
+    <div id="follower-web"></div>
+  </div>
+
   <div id="claimed-extras"></div>
 
   <h2 class="section-title">badge</h2>
@@ -111,6 +117,46 @@ const av = user.avatarUrl ? `${user.avatarUrl}${user.avatarUrl.includes('?') ? '
       document.getElementById('distance-link').innerHTML =
         ` · <a class="mono" href="/network?u=${me}&path=${login}">degrees from you →</a>`;
     }
+    // flat follower web: phyllotaxis spiral, best-vouched closest to the center
+    fetch(`/data/followers/${login}.json`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((web) => {
+        if (!web || !web.followers.length) return;
+        const section = document.getElementById('follower-web-section');
+        section.classList.remove('hidden');
+        document.getElementById('web-sub').textContent =
+          `${web.inNetwork.toLocaleString()} ranked devs follow ${login} — closest to the center = highest vouchrank. click to explore.`;
+        const fs = web.followers;
+        const W = Math.min(960, document.getElementById('follower-web').clientWidth || 960);
+        const GA = Math.PI * (3 - Math.sqrt(5));
+        const spread = 30;
+        const maxR = spread * Math.sqrt(fs.length) + 70;
+        const H = Math.min(2 * maxR + 60, 900);
+        const cx = W / 2, cy = H / 2;
+        const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        const av = (u, s) => u.avatarUrl ? `${u.avatarUrl}${u.avatarUrl.includes('?') ? '&' : '?'}s=${s}` : '';
+        const me = document.querySelector('.profile-avatar')?.src ?? '';
+        const nodes = fs.map((f, i) => {
+          const r = spread * Math.sqrt(i + 1.5);
+          const a = i * GA;
+          const size = Math.max(18, 40 - Math.sqrt(i) * 2.4);
+          return { f, x: cx + r * Math.cos(a), y: cy + (r * Math.sin(a) * (H / (2 * maxR))), size };
+        });
+        document.getElementById('follower-web').innerHTML = `
+          <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">
+            ${nodes.map((n) => `<line x1="${cx}" y1="${cy}" x2="${n.x}" y2="${n.y}" stroke="#8a5cff" stroke-opacity="${Math.max(0.04, 0.3 - n.size / 200)}" stroke-width="1"/>`).join('')}
+            ${nodes.map((n) => `
+              <a href="${n.f.rank && n.f.rank <= 1000 ? `/u/${esc(n.f.login)}` : `https://github.com/${esc(n.f.login)}`}">
+                <image href="${esc(av(n.f, 64))}" x="${n.x - n.size / 2}" y="${n.y - n.size / 2}" width="${n.size}" height="${n.size}"
+                  style="clip-path:circle(50%)" loading="lazy"/>
+                <title>${esc(n.f.login)}${n.f.rank ? ` · contrib #${n.f.rank.toLocaleString()}` : ''}${n.f.score != null ? ` · vouch ${n.f.score}` : ''}</title>
+              </a>`).join('')}
+            <circle cx="${cx}" cy="${cy}" r="34" fill="#06070e" stroke="#b6ff2e" stroke-width="2.5"/>
+            <image href="${me}" x="${cx - 31}" y="${cy - 31}" width="62" height="62" style="clip-path:circle(50%)"/>
+          </svg>`;
+      })
+      .catch(() => {});
+
     fetch(`${API}/api/profile/${login}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((p) => {
@@ -138,4 +184,11 @@ const av = user.avatarUrl ? `${user.avatarUrl}${user.avatarUrl.includes('?') ? '
     padding: 12px 16px; overflow-x: auto; font-size: 13px; color: var(--cyan);
   }
   .contact-row { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
+  #follower-web {
+    border: 1px solid var(--line); border-radius: 16px; overflow: hidden;
+    background: radial-gradient(circle at 50% 50%, #8a5cff0d, transparent 70%), var(--bg-soft);
+    box-shadow: 0 0 30px #8a5cff14;
+  }
+  #follower-web image { transition: transform .12s; transform-origin: center; transform-box: fill-box; }
+  #follower-web a:hover image { transform: scale(1.5); }
 </style>

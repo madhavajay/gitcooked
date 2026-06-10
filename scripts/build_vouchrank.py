@@ -93,6 +93,38 @@ def main():
         for j in out[i]:
             indeg[j] += 1
 
+    # depth-resolved decomposition: pr = sum_k (1-d) d^k (M^k tele)
+    # depths[k][v] = score mass reaching v via walks of length exactly k
+    K = 4
+    vk = [(1 - DAMPING) * t for t in tele]
+    depth_parts = [vk[:]]
+    for _ in range(K):
+        nxt = [0.0] * n
+        dangling = sum(vk[i] for i in range(n) if not out[i])
+        for i in range(n):
+            if out[i]:
+                share = vk[i] / len(out[i])
+                for j in out[i]:
+                    nxt[j] += share
+        vk = [DAMPING * (nxt[i] + dangling * tele[i]) for i in range(n)]
+        depth_parts.append(vk[:])
+
+    # top endorsers: follower u hands v a share d*pr(u)/out(u)
+    contrib_top = [[] for _ in range(n)]
+    for i in range(n):
+        if not out[i]:
+            continue
+        share = DAMPING * pr[i] / len(out[i])
+        for j in out[i]:
+            lst = contrib_top[j]
+            lst.append((share, i))
+            if len(lst) > 8:
+                lst.sort(reverse=True)
+                del lst[5:]
+    for lst in contrib_top:
+        lst.sort(reverse=True)
+        del lst[5:]
+
     mx = max(pr) or 1.0
     order = sorted(range(n), key=lambda i: -pr[i])
     users = {}
@@ -100,6 +132,11 @@ def main():
         login = names[i]
         rec = store.get(login) or {}
         score = round(1000 * (math.log1p(pr[i] / mx * 1000) / math.log1p(1000)))
+        total = pr[i] or 1.0
+        parts = [depth_parts[k][i] for k in range(K + 1)]
+        rest = max(0.0, total - sum(parts))
+        permille = [round(1000 * p / total) for p in parts] + [round(1000 * rest / total)]
+        endorsers = [[names[j], round(1000 * share / total)] for share, j in contrib_top[i] if share / total >= 0.005]
         users[login] = [
             vr_rank,
             score,
@@ -107,6 +144,8 @@ def main():
             rec.get("followingCount"),
             ranked.get(login),
             indeg[i],  # in-network endorsements (known even before the user is crawled)
+            permille,  # [seed, 1st, 2nd, 3rd, 4th, deeper] per-mille of score
+            endorsers,  # top [login, permille] direct contributors
         ]
 
     OUT.write_text(
@@ -137,6 +176,40 @@ def main():
             "inNetwork": u[5],
             "contribRank": u[4],
         }
+
+    # per-user follower webs for profile pages (top 1000 by contribution rank)
+    followers_of = [[] for _ in range(n)]
+    for i in range(n):
+        for j in out[i]:
+            followers_of[j].append(i)
+    web_dir = OUT.parent / "followers"
+    web_dir.mkdir(parents=True, exist_ok=True)
+    top1000 = {l for l, r in ranked.items() if r <= 1000}
+    webs = 0
+    for login in top1000:
+        if login not in idx:
+            continue
+        i = idx[login]
+        fl = sorted(followers_of[i], key=lambda j: -pr[j])[:400]
+        out_rows = []
+        for j in fl:
+            flogin = names[j]
+            m = meta.get(flogin) or {}
+            u = users.get(flogin := flogin) or [None] * 6
+            out_rows.append(
+                {
+                    "login": flogin,
+                    "rank": ranked.get(flogin),
+                    "vrRank": u[0],
+                    "score": u[1],
+                    "avatarUrl": m.get("avatarUrl") or "",
+                }
+            )
+        (web_dir / f"{login}.json").write_text(
+            json.dumps({"login": login, "inNetwork": indeg[i], "followers": out_rows}, ensure_ascii=False)
+        )
+        webs += 1
+    print(f"follower webs for {webs} top-1000 users -> {web_dir}/")
 
     rows = [enrich(i) for i in order]
     (DATA / "vouchrank_top.json").write_text(json.dumps(rows[:200], ensure_ascii=False))
