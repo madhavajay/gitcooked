@@ -1,0 +1,67 @@
+---
+import Layout from '../layouts/Layout.astro';
+import clusters from '../data/clusters.json';
+
+const av = (u, s) => u.avatarUrl ? `${u.avatarUrl}${u.avatarUrl.includes('?') ? '&' : '?'}s=${s}` : '';
+---
+<Layout title="dev clusters — gitcooked" description="Clusters of cracked open-source developers who build together.">
+  <h1 class="glow">dev clusters</h1>
+  <p class="sub">
+    crews of cracked devs who work on the same repos — co-contribution graph over the
+    top {clusters.indexedUsers.toLocaleString()} ranked committers, {clusters.connectedUsers.toLocaleString()} connected.
+  </p>
+
+  {clusters.clusters.length === 0 && (
+    <p class="sub">cluster data is still being indexed — check back soon.</p>
+  )}
+
+  <div class="cluster-grid">
+    {clusters.clusters.map((c) => (
+      <div class="cluster-card">
+        <div class="cluster-head">
+          <span class="cluster-label">{c.label}</span>
+          <span class="meta">{c.size} devs</span>
+        </div>
+        <div class="faces">
+          {c.members.slice(0, 12).map((m) => (
+            <a href={m.rank <= 1000 ? `/u/${m.login}` : `https://github.com/${m.login}`} title={`${m.login} · #${m.rank}`}>
+              <img src={av(m, 64)} alt={m.login} loading="lazy" />
+            </a>
+          ))}
+          {c.size > 12 && <span class="meta more">+{c.size - 12}</span>}
+        </div>
+        <div class="repos">
+          {c.topRepos.slice(0, 4).map((r) => (
+            <a class="chip" href={`https://github.com/${r.repo}`} target="_blank" rel="noopener">
+              {r.repo} <span class="shared">×{r.sharedBy}</span>
+            </a>
+          ))}
+        </div>
+      </div>
+    ))}
+  </div>
+</Layout>
+
+<style>
+  .cluster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; margin-top: 26px; }
+  .cluster-card {
+    border: 1px solid var(--line); border-radius: 16px; padding: 18px;
+    background: var(--panel); transition: all .15s;
+  }
+  .cluster-card:hover { border-color: var(--magenta); box-shadow: 0 0 24px #ff3df222; }
+  .cluster-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+  .cluster-label {
+    font-weight: 700; font-size: 17px;
+    background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .faces { display: flex; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .faces img {
+    width: 38px; height: 38px; border-radius: 50%; border: 2px solid var(--bg);
+    margin-right: -8px; background: var(--bg-soft); transition: transform .15s;
+  }
+  .faces a:hover img { transform: translateY(-3px) scale(1.1); border-color: var(--cyan); }
+  .faces .more { margin-left: 14px; font-size: 12px; }
+  .repos { display: flex; flex-wrap: wrap; gap: 4px; }
+  .repos .shared { color: var(--cyan); }
+  .meta { color: var(--muted); font-size: 12px; }
+</style>

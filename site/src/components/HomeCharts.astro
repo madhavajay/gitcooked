@@ -1,0 +1,112 @@
+---
+import index from '../data/index.json';
+import countries from '../geo/countries.json';
+import movers from '../data/movers.json';
+
+const regions = {};
+for (const l of index) {
+  const c = countries[l.slug];
+  if (!c) continue;
+  regions[c.region] = (regions[c.region] ?? 0) + (l.totalUserCount ?? 0);
+}
+
+const topCountries = index
+  .filter((l) => l.slug !== 'worldwide')
+  .sort((a, b) => (b.totalUserCount ?? 0) - (a.totalUserCount ?? 0))
+  .slice(0, 15)
+  .map((l) => ({ title: l.title, devs: l.totalUserCount ?? 0 }));
+
+const FARM_CEILING = 300000;
+const topMovers = movers.movers
+  .filter((m) => m.contributions < FARM_CEILING)
+  .slice(0, 10);
+const series = Object.fromEntries(
+  topMovers.slice(0, 6).map((m) => [m.login, movers.series[m.login] ?? []]).filter(([, s]) => s.length > 2)
+);
+
+const payload = { regions, topCountries, topMovers, series };
+---
+<div class="charts-grid">
+  <div class="chart-card"><h3>devs by region</h3><div class="chart" id="chart-regions"></div></div>
+  <div class="chart-card"><h3>biggest dev populations</h3><div class="chart" id="chart-countries"></div></div>
+  <div class="chart-card wide">
+    <h3>going exponential — fastest growing committers (6 months)</h3>
+    <div class="chart" id="chart-movers"></div>
+  </div>
+</div>
+<script type="application/json" id="charts-data" set:html={JSON.stringify(payload)}></script>
+
+<script>
+  import * as echarts from 'echarts';
+
+  const { regions, topCountries, topMovers, series } = JSON.parse(
+    document.getElementById('charts-data').textContent
+  );
+
+  const NEON = ['#2ee6ff', '#ff3df2', '#b6ff2e', '#8a5cff', '#ffb02e', '#2eff9e', '#ff5c5c'];
+  const base = {
+    backgroundColor: 'transparent',
+    textStyle: { color: '#7b84ad', fontFamily: 'ui-monospace, Menlo, monospace' },
+    tooltip: { backgroundColor: '#0c0e1a', borderColor: '#1c2140', textStyle: { color: '#e8ecff' } },
+  };
+
+  const mk = (id, opt) => {
+    const chart = echarts.init(document.getElementById(id), null, { renderer: 'canvas' });
+    chart.setOption({ ...base, ...opt });
+    addEventListener('resize', () => chart.resize());
+    return chart;
+  };
+
+  mk('chart-regions', {
+    color: NEON,
+    series: [{
+      type: 'pie',
+      radius: ['45%', '72%'],
+      itemStyle: { borderColor: '#06070e', borderWidth: 2 },
+      label: { color: '#7b84ad', formatter: '{b}\n{d}%' },
+      data: Object.entries(regions).map(([name, value]) => ({ name, value })),
+    }],
+  });
+
+  mk('chart-countries', {
+    grid: { left: 110, right: 30, top: 10, bottom: 25 },
+    xAxis: { type: 'value', axisLabel: { formatter: (v) => (v >= 1e6 ? v / 1e6 + 'M' : v / 1e3 + 'k') }, splitLine: { lineStyle: { color: '#14182e' } } },
+    yAxis: { type: 'category', inverse: true, data: topCountries.map((c) => c.title), axisLabel: { color: '#e8ecff' } },
+    series: [{
+      type: 'bar',
+      data: topCountries.map((c) => c.devs),
+      itemStyle: {
+        borderRadius: [0, 6, 6, 0],
+        color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: '#2ee6ff' }, { offset: 1, color: '#8a5cff' }] },
+      },
+    }],
+  });
+
+  mk('chart-movers', {
+    color: NEON,
+    grid: { left: 70, right: 30, top: 30, bottom: 25 },
+    legend: { textStyle: { color: '#7b84ad' }, top: 0 },
+    xAxis: { type: 'time', splitLine: { show: false } },
+    yAxis: { type: 'value', name: 'contribs', splitLine: { lineStyle: { color: '#14182e' } } },
+    series: Object.entries(series).map(([login, pts]) => ({
+      name: login,
+      type: 'line',
+      smooth: true,
+      showSymbol: false,
+      lineStyle: { width: 2.5, shadowBlur: 12 },
+      data: pts,
+    })),
+  });
+</script>
+
+<style>
+  .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 26px 0; }
+  .chart-card {
+    border: 1px solid var(--line); border-radius: 16px; padding: 16px;
+    background: var(--panel);
+  }
+  .chart-card.wide { grid-column: 1 / -1; }
+  .chart-card h3 { margin: 0 0 8px; font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .chart { height: 300px; }
+  @media (max-width: 760px) { .charts-grid { grid-template-columns: 1fr; } .chart { height: 240px; } }
+</style>

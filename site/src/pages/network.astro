@@ -1,0 +1,222 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+<Layout title="the network — gitcooked" description="The follower network of the most active GitHub committers — degrees of separation, visualized.">
+  <h1 class="glow">the network</h1>
+  <p class="sub">
+    who follows whom among the most cooked devs on earth.
+    <span id="net-meta"></span>
+  </p>
+
+  <div class="net-controls">
+    <input class="filter-box" id="net-user" type="search" placeholder="center on user… (ego view)" autocomplete="off" />
+    <input class="filter-box" id="net-path" type="search" placeholder="…find path to user (kevin bacon mode)" autocomplete="off" />
+    <button class="tab" id="net-geo">🌍 geo layout</button>
+    <button class="tab" id="net-reset">reset</button>
+  </div>
+  <p class="sub" id="net-status"></p>
+  <div id="net-sim" class="hidden" style="color:var(--magenta);font-weight:700;letter-spacing:2px">⚠ SIMULATED DATA — for UI testing only</div>
+
+  <div id="graph"></div>
+
+  <script>
+    import ForceGraph3D from '3d-force-graph';
+    import countries from '../geo/countries.json';
+
+    const REGION_COLORS = {
+      'Africa': '#b6ff2e', 'Asia': '#ff3df2', 'Europe': '#2ee6ff',
+      'North America': '#8a5cff', 'South America': '#ffb02e',
+      'Oceania': '#2eff9e', 'Middle East': '#ff5c5c',
+    };
+
+    const el = document.getElementById('graph');
+    const status = document.getElementById('net-status');
+    let DATA = null;
+    let adj = null;
+    let geoMode = false;
+    let Graph = null;
+
+    const byLogin = new Map();
+
+    function buildAdj() {
+      adj = new Map(DATA.nodes.map((n) => [n.id, []]));
+      for (const [a, b] of DATA.links) { adj.get(a).push(b); adj.get(b).push(a); }
+    }
+
+    function bfsPath(srcId, dstId) {
+      const prev = new Map([[srcId, null]]);
+      let q = [srcId];
+      while (q.length) {
+        const next = [];
+        for (const n of q) {
+          if (n === dstId) {
+            const path = [];
+            for (let c = dstId; c !== null; c = prev.get(c)) path.push(c);
+            return path.reverse();
+          }
+          for (const m of adj.get(n)) if (!prev.has(m)) { prev.set(m, n); next.push(m); }
+        }
+        q = next;
+      }
+      return null;
+    }
+
+    function egoSet(id, hops = 2, cap = 600) {
+      const dist = new Map([[id, 0]]);
+      let q = [id];
+      for (let d = 1; d <= hops && q.length; d++) {
+        const next = [];
+        for (const n of q) for (const m of adj.get(n)) {
+          if (!dist.has(m) && dist.size < cap) { dist.set(m, d); next.push(m); }
+        }
+        q = next;
+      }
+      return dist;
+    }
+
+    const nodeColor = (n) => {
+      const c = countries[n.country];
+      return REGION_COLORS[c?.region] ?? '#7b84ad';
+    };
+
+    function render(nodes, links, highlight = new Set()) {
+      Graph.graphData({
+        nodes,
+        links: links.map(([source, target, mutual]) => ({ source, target, mutual })),
+      })
+        .nodeColor((n) => (highlight.has(n.id) ? '#ffffff' : nodeColor(n)))
+        .nodeVal((n) => (highlight.has(n.id) ? 14 : Math.max(2, 10 - Math.log10(n.rank + 1) * 3)))
+        .linkColor((l) => {
+          const s = typeof l.source === 'object' ? l.source.id : l.source;
+          const t = typeof l.target === 'object' ? l.target.id : l.target;
+          if (highlight.has(s) && highlight.has(t)) return '#ffffff';
+          return l.mutual ? '#8a5cff' : '#1c2140';
+        })
+        .linkWidth((l) => {
+          const s = typeof l.source === 'object' ? l.source.id : l.source;
+          const t = typeof l.target === 'object' ? l.target.id : l.target;
+          return highlight.has(s) && highlight.has(t) ? 3 : l.mutual ? 1.2 : 0.4;
+        })
+        .linkOpacity(0.35);
+      applyGeo();
+    }
+
+    function applyGeo() {
+      for (const n of Graph.graphData().nodes) {
+        const c = countries[n.country];
+        if (geoMode && c) {
+          n.fx = c.lng * 4 + (n.id % 13) - 6;
+          n.fy = c.lat * 4 + ((n.id * 7) % 13) - 6;
+          n.fz = 0;
+        } else {
+          n.fx = n.fy = n.fz = undefined;
+        }
+      }
+      Graph.d3ReheatSimulation();
+    }
+
+    function fullView() {
+      // cap initial render for perf: top nodes by rank + all mutual links
+      const cap = 3000;
+      const keep = new Set(DATA.nodes.slice(0, cap).map((n) => n.id));
+      const links = DATA.links.filter(([a, b]) => keep.has(a) && keep.has(b));
+      render(DATA.nodes.filter((n) => keep.has(n.id)), links);
+      status.textContent = `showing top ${Math.min(cap, DATA.nodes.length).toLocaleString()} of ${DATA.nodes.length.toLocaleString()} connected devs · ${DATA.links.length.toLocaleString()} edges · color = region, purple links = mutual follows`;
+    }
+
+    function egoView(login) {
+      const node = byLogin.get(login.toLowerCase());
+      if (!node) { status.textContent = `${login} isn't in the crawled network (yet)`; return; }
+      const dist = egoSet(node.id);
+      const keep = new Set(dist.keys());
+      const links = DATA.links.filter(([a, b]) => keep.has(a) && keep.has(b));
+      render(DATA.nodes.filter((n) => keep.has(n.id)), links, new Set([node.id]));
+      status.textContent = `${node.login}: ${[...dist.values()].filter((d) => d === 1).length} direct connections, ${keep.size - 1} within 2 hops`;
+      setTimeout(() => {
+        const n = Graph.graphData().nodes.find((x) => x.id === node.id);
+        if (n) Graph.cameraPosition({ x: (n.x ?? 0) + 120, y: (n.y ?? 0) + 40, z: (n.z ?? 0) + 120 }, n, 1200);
+      }, 1500);
+    }
+
+    function pathView(fromLogin, toLogin) {
+      const a = byLogin.get(fromLogin.toLowerCase());
+      const b = byLogin.get(toLogin.toLowerCase());
+      if (!a || !b) { status.textContent = 'both users need to be in the network'; return; }
+      const path = bfsPath(a.id, b.id);
+      if (!path) { status.textContent = `${a.login} and ${b.login} aren't connected (in crawled data)`; return; }
+      const keep = new Set(path);
+      for (const id of path) for (const m of adj.get(id)) keep.add(m);
+      const links = DATA.links.filter(([x, y]) => keep.has(x) && keep.has(y));
+      render(DATA.nodes.filter((n) => keep.has(n.id)), links, new Set(path));
+      const names = path.map((id) => DATA.nodes.find((n) => n.id === id)?.login).join(' → ');
+      status.textContent = `${path.length - 1} degrees: ${names}`;
+    }
+
+    async function init() {
+      DATA = await fetch('/data/network.json').then((r) => r.json());
+      DATA.nodes.forEach((n) => byLogin.set(n.login.toLowerCase(), n));
+      buildAdj();
+      if (DATA.simulated) document.getElementById('net-sim').classList.remove('hidden');
+      document.getElementById('net-meta').textContent =
+        `crawled ${DATA.crawledUsers.toLocaleString()} profiles so far — updated ${new Date(DATA.generatedAt).toLocaleDateString()}.`;
+
+      Graph = new ForceGraph3D(el)
+        .backgroundColor('#06070e')
+        .showNavInfo(false)
+        .nodeLabel((n) => `<div style="background:#0c0e1a;border:1px solid #1c2140;border-radius:8px;padding:6px 10px">
+            <img src="${n.avatarUrl ? n.avatarUrl + (n.avatarUrl.includes('?') ? '&' : '?') + 's=48' : ''}" width="24" height="24" style="border-radius:50%;vertical-align:middle"/>
+            <b style="color:#e8ecff"> ${n.login}</b> <span style="color:#7b84ad">#${n.rank} · ${n.country?.replace(/_/g, ' ') ?? ''}</span></div>`)
+        .onNodeClick((n) => {
+          document.getElementById('net-user').value = n.login;
+          egoView(n.login);
+        })
+        .width(el.clientWidth)
+        .height(el.clientHeight);
+
+      const params = new URLSearchParams(location.search);
+      const u = params.get('u');
+      if (u && byLogin.has(u.toLowerCase())) {
+        document.getElementById('net-user').value = u;
+        egoView(u);
+      } else {
+        fullView();
+      }
+    }
+
+    const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+    document.getElementById('net-user').addEventListener('change', (e) => {
+      const v = e.target.value.trim();
+      if (v) egoView(v);
+    });
+    document.getElementById('net-path').addEventListener('change', (e) => {
+      const from = document.getElementById('net-user').value.trim();
+      const to = e.target.value.trim();
+      if (from && to) pathView(from, to);
+    });
+    document.getElementById('net-geo').addEventListener('click', (e) => {
+      geoMode = !geoMode;
+      e.target.classList.toggle('active', geoMode);
+      applyGeo();
+    });
+    document.getElementById('net-reset').addEventListener('click', () => {
+      document.getElementById('net-user').value = '';
+      document.getElementById('net-path').value = '';
+      fullView();
+    });
+
+    init();
+  </script>
+
+  <style>
+    #graph {
+      height: 70vh;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      overflow: hidden;
+      margin-top: 14px;
+      box-shadow: 0 0 40px #8a5cff18;
+    }
+    .net-controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 14px 0 4px; }
+    .net-controls .filter-box { max-width: 280px; }
+  </style>
+</Layout>

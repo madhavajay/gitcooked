@@ -1,0 +1,133 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import global from '../../data/global.json';
+import community from '../../data/community.json';
+
+export async function getStaticPaths() {
+  const files = import.meta.glob('../../data/locations/*.json', { eager: true });
+  const localRanks = {};
+  for (const loc of Object.values(files)) {
+    if (loc.slug === 'worldwide') continue;
+    for (const u of loc.modes.commits) {
+      (localRanks[u.login] ??= []).push({ slug: loc.slug, title: loc.title, rank: u.rank });
+    }
+  }
+  const rankIn = (mode, login) => {
+    const u = mode.find((x) => x.login === login);
+    return u ? u.rank : null;
+  };
+  return global.modes.commits.slice(0, 1000).map((u) => ({
+    params: { login: u.login },
+    props: {
+      user: u,
+      ranks: {
+        commits: u.rank,
+        contributions: rankIn(global.modes.contributions, u.login),
+        all: rankIn(global.modes.all, u.login),
+      },
+      local: (localRanks[u.login] ?? []).sort((a, b) => a.rank - b.rank),
+      vouchedBy: community.vouches[u.login] ?? [],
+      socials: community.socials[u.login] ?? {},
+    },
+  }));
+}
+
+const { user, ranks, local, vouchedBy, socials } = Astro.props;
+const av = user.avatarUrl ? `${user.avatarUrl}${user.avatarUrl.includes('?') ? '&' : '?'}s=240` : '';
+---
+<Layout title={`${user.login} — gitcooked`} og={`/og/u/${user.login}.jpg`} description={`${user.login} is ranked #${ranks.commits} globally on gitcooked.`}>
+  <div class="profile-hero">
+    <img class="profile-avatar" src={av} alt={user.login} />
+    <div>
+      <h1 class="glow" style="margin:0">{user.login}</h1>
+      <p class="sub" style="margin:4px 0 0">{user.name}{user.company ? ` · ${user.company}` : ''}</p>
+      <a href={`https://github.com/${user.login}`} target="_blank" rel="noopener" class="mono">github.com/{user.login} ↗</a>
+      · <a href={`/network?u=${user.login}`} class="mono">view network →</a>
+    </div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat"><div class="num">#{ranks.commits}</div><div class="label">global · commits</div></div>
+    {ranks.contributions && <div class="stat"><div class="num">#{ranks.contributions}</div><div class="label">global · contributions</div></div>}
+    {ranks.all && <div class="stat"><div class="num">#{ranks.all}</div><div class="label">global · incl. private</div></div>}
+    <div class="stat"><div class="num">{user.contributions.toLocaleString()}</div><div class="label">contributions / yr</div></div>
+  </div>
+
+  {local.length > 0 && (
+    <>
+      <h2 class="section-title">local rankings</h2>
+      <div class="stats-row">
+        {local.map((l) => (
+          <a class="stat" href={`/${l.slug}`} style="text-decoration:none">
+            <div class="num">#{l.rank}</div>
+            <div class="label">{l.title}</div>
+          </a>
+        ))}
+      </div>
+    </>
+  )}
+
+  {user.organizations.length > 0 && (
+    <>
+      <h2 class="section-title">organizations</h2>
+      <p>{user.organizations.map((o) => <span class="chip">{o}</span>)}</p>
+    </>
+  )}
+
+  {Object.keys(socials).length > 0 && (
+    <>
+      <h2 class="section-title">links</h2>
+      <p>{Object.entries(socials).map(([k, v]) => <a class="chip" href={v} target="_blank" rel="noopener">{k}</a>)}</p>
+    </>
+  )}
+
+  {vouchedBy.length > 0 && (
+    <>
+      <h2 class="section-title">vouched for by {vouchedBy.length} dev{vouchedBy.length > 1 ? 's' : ''}</h2>
+      <p>{vouchedBy.map((v) => <a class="chip" href={`/u/${v.voucher}`} title={v.note}>{v.voucher}</a>)}</p>
+    </>
+  )}
+
+  <div id="claimed-extras"></div>
+
+  <h2 class="section-title">badge</h2>
+  <p class="sub">put your live rank on your README or website:</p>
+  <pre class="embed-snippet"><code>[![gitcooked](https://api.gitcooked.dev/badge/{user.login}.svg)](https://gitcooked.dev/u/{user.login})</code></pre>
+  {local.length > 0 && (
+    <pre class="embed-snippet"><code>[![gitcooked](https://api.gitcooked.dev/badge/{user.login}.svg?scope={local[0].slug})](https://gitcooked.dev/{local[0].slug})</code></pre>
+  )}
+
+  <p class="sub" style="margin-top:30px">
+    is this you? <a href={`https://api.gitcooked.dev/api/auth/login`}>claim this profile</a> to add socials &amp; vouch for other devs.
+  </p>
+
+  <script>
+    const login = location.pathname.split('/').filter(Boolean).pop();
+    const API = 'https://api.gitcooked.dev';
+    fetch(`${API}/api/profile/${login}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((p) => {
+        if (!p) return;
+        const el = document.getElementById('claimed-extras');
+        let html = '';
+        const socials = Object.entries(p.socials ?? {});
+        if (socials.length) {
+          html += '<h2 class="section-title">links</h2><p>' +
+            socials.map(([k, v]) => `<a class="chip" href="${v}" target="_blank" rel="noopener">${k}</a>`).join(' ') + '</p>';
+        }
+        if (p.vouchedBy?.length) {
+          html += `<h2 class="section-title">vouched for by ${p.vouchedBy.length} dev${p.vouchedBy.length > 1 ? 's' : ''}</h2><p>` +
+            p.vouchedBy.map((v) => `<a class="chip" href="/u/${v.voucher}">${v.voucher}</a>`).join(' ') + '</p>';
+        }
+        el.innerHTML = html;
+      })
+      .catch(() => {});
+  </script>
+</Layout>
+
+<style>
+  .embed-snippet {
+    background: var(--bg-soft); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 16px; overflow-x: auto; font-size: 13px; color: var(--cyan);
+  }
+</style>

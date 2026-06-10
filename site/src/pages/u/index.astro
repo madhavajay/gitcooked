@@ -1,0 +1,48 @@
+---
+import Layout from '../../layouts/Layout.astro';
+---
+<Layout title="am i ranked? — gitcooked">
+  <h1 class="glow">am i ranked?</h1>
+  <p class="sub">type your GitHub username — instant lookup across all {`38k`} ranked devs</p>
+
+  <input class="filter-box" id="lookup" type="search" placeholder="your github username…" autocomplete="off" autofocus />
+  <div id="result" style="margin-top:26px"></div>
+
+  <script>
+    const input = document.getElementById('lookup');
+    const result = document.getElementById('result');
+    let index = null;
+
+    const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+
+    input.addEventListener('input', debounce(async () => {
+      const q = input.value.trim().toLowerCase();
+      if (!q) { result.innerHTML = ''; return; }
+      if (!index) {
+        result.innerHTML = '<p class="sub">loading index…</p>';
+        index = await fetch('/data/search.json').then((r) => r.json());
+      }
+      const exact = index.find(([login]) => login.toLowerCase() === q);
+      const partial = index.filter(([login]) => login.toLowerCase().includes(q)).slice(0, 8);
+      if (exact) {
+        const [login, rank, contributions] = exact;
+        result.innerHTML = `
+          <div class="stats-row">
+            <div class="stat"><div class="num">#${rank}</div><div class="label">global rank</div></div>
+            <div class="stat"><div class="num">${contributions.toLocaleString()}</div><div class="label">contributions / yr</div></div>
+          </div>
+          <p>${rank <= 1000 ? `<a href="/u/${login}">full rank card →</a>` : `<a href="https://github.com/${login}" target="_blank" rel="noopener">github.com/${login} ↗</a>`}</p>`;
+      } else if (partial.length) {
+        result.innerHTML = '<p class="sub">close matches:</p>' + partial
+          .map(([login, rank]) => `<p><a href="${rank <= 1000 ? `/u/${login}` : `https://github.com/${login}`}">${login}</a> <span class="mono" style="color:var(--muted)">#${rank}</span></p>`)
+          .join('');
+      } else {
+        result.innerHTML = `
+          <p class="sub">not ranked (yet). you might need ≥ the follower floor for your country, or your GitHub location may not match our queries.</p>
+          <a class="btn-more" style="display:inline-block;text-decoration:none"
+             href="https://github.com/madhavajay/gitcooked/issues/new?template=index-request.yml&title=index+request:+${encodeURIComponent(input.value.trim())}"
+             target="_blank" rel="noopener">request indexing →</a>`;
+      }
+    }, 150));
+  </script>
+</Layout>

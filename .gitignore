@@ -1,0 +1,15 @@
+# upstream clone (reproducible via scripts/fetch_upstream.sh)
+committers.top/
+
+# local crawl stores (large; rebuilt by scripts/crawl_followers.py & index_repos.py)
+data/graph/
+data/repos/
+
+# generated JSON (reproducible via scripts/convert.py)
+site/src/data/
+site/public/data/
+
+# astro
+site/node_modules/
+site/dist/
+site/.astro/

@@ -1,0 +1,22 @@
+---
+import Layout from '../layouts/Layout.astro';
+import global from '../data/global.json';
+
+const SLICE = 100;
+const modes = {
+  commits: global.modes.commits.slice(0, SLICE),
+  contributions: global.modes.contributions.slice(0, SLICE),
+  all: global.modes.all.slice(0, SLICE),
+};
+const totals = {
+  commits: global.modes.commits.length,
+  contributions: global.modes.contributions.length,
+  all: global.modes.all.length,
+};
+import Ranking from '../components/Ranking.astro';
+---
+<Layout title="global ranking — gitcooked">
+  <h1 class="glow">global</h1>
+  <p class="sub">every ranked dev from every country, merged &amp; deduped · {totals.commits.toLocaleString()} devs</p>
+  <Ranking modes={modes} isGlobal={true} totals={totals} />
+</Layout>

@@ -1,0 +1,49 @@
+name: update data
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '15 * * * *'
+
+permissions:
+  contents: write
+
+jobs:
+  update_data:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: collector/go.mod
+
+      - name: build collector
+        working-directory: collector
+        run: CGO_ENABLED=0 go build -o "$RUNNER_TEMP/collector" .
+
+      - name: refresh stale locations
+        id: refresh
+        continue-on-error: true # successes are still written; commit them below
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COLLECTOR_BIN: ${{ runner.temp }}/collector
+        run: python3 scripts/refresh_stale.py
+
+      - name: commit & push changes
+        run: |
+          git add data/locations
+          names=$(git diff --cached --name-only -- data/locations | sed 's|.*/||; s|\.yml$||' | xargs)
+          if [ -z "$names" ]; then
+            echo "No data changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "data: refresh $names $(date -u +%Y-%m-%d)"
+          git push
+
+      - name: fail if any preset failed
+        if: steps.refresh.outcome == 'failure'
+        run: exit 1

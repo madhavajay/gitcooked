@@ -1,0 +1,63 @@
+---
+import Layout from '../layouts/Layout.astro';
+import WorldMap from '../components/WorldMap.astro';
+import HomeCharts from '../components/HomeCharts.astro';
+import index from '../data/index.json';
+import global from '../data/global.json';
+
+const locations = index.filter((l) => l.slug !== 'worldwide');
+const top10 = global.modes.commits.slice(0, 10);
+const totalUsers = global.modes.commits.length;
+const totalContribs = global.modes.commits.reduce((s, u) => s + u.contributions, 0);
+const av = (u, s) => u.avatarUrl ? `${u.avatarUrl}${u.avatarUrl.includes('?') ? '&' : '?'}s=${s}` : '';
+---
+<Layout title="gitcooked — the most cooked committers on GitHub">
+  <h1 class="glow">who's cooking on GitHub?</h1>
+  <p class="sub">Global + per-country rankings of the most active GitHub committers, refreshed daily.</p>
+
+  <div class="stats-row">
+    <div class="stat"><div class="num">{totalUsers.toLocaleString()}</div><div class="label">ranked devs</div></div>
+    <div class="stat"><div class="num">{locations.length}</div><div class="label">countries</div></div>
+    <div class="stat"><div class="num">{totalContribs.toLocaleString()}</div><div class="label">contributions / yr</div></div>
+  </div>
+
+  <WorldMap />
+
+  <h2 class="section-title">global top 10</h2>
+  <p class="sub">merged across every country — <a href="/global">full global ranking →</a></p>
+  <table class="rank-table">
+    <thead><tr><th>#</th><th>user</th><th>company</th><th style="text-align:right">contribs</th></tr></thead>
+    <tbody>
+      {top10.map((u) => (
+        <tr class={`t10 r${u.rank <= 3 ? u.rank : ''}`}>
+          <td class="rank">{u.rank}</td>
+          <td><div class="who">
+            <img class="avatar" src={av(u, 96)} alt={u.login} loading="lazy" />
+            <div>
+              <a href={u.rank <= 1000 ? `/u/${u.login}` : `https://github.com/${u.login}`}>{u.login}</a>
+              <div class="name">{u.name}</div>
+            </div>
+          </div></td>
+          <td class="meta">{u.company}</td>
+          <td class="num">{u.contributions.toLocaleString()}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+
+  <h2 class="section-title">the state of the cook</h2>
+  <HomeCharts />
+
+  <h2 class="section-title" id="countries">countries</h2>
+  <div class="loc-grid">
+    {locations.map((l) => (
+      <a class="loc-card" href={`/${l.slug}`}>
+        <div class="faces">
+          {l.top.map((u) => <img src={u.avatarUrl ? `${u.avatarUrl}&s=64` : ''} alt={u.login} loading="lazy" />)}
+        </div>
+        <div class="title">{l.title}</div>
+        <div class="meta">{l.rankedUsers} ranked · {(l.totalUserCount ?? 0).toLocaleString()} devs</div>
+      </a>
+    ))}
+  </div>
+</Layout>

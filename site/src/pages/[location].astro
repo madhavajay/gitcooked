@@ -1,0 +1,22 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Ranking from '../components/Ranking.astro';
+
+export async function getStaticPaths() {
+  const files = import.meta.glob('../data/locations/*.json', { eager: true });
+  return Object.values(files).map((loc) => ({
+    params: { location: loc.slug },
+    props: { loc },
+  }));
+}
+
+const { loc } = Astro.props;
+---
+<Layout title={`${loc.title} — gitcooked`} og={`/og/${loc.slug}.jpg`} description={`The most active GitHub committers in ${loc.title}.`}>
+  <h1 class="glow">{loc.title}</h1>
+  <p class="sub">
+    {(loc.totalUserCount ?? 0).toLocaleString()} GitHub users · ranked top {loc.modes.commits.length}
+    · needs ≥{loc.minFollowers} followers to be considered
+  </p>
+  <Ranking modes={loc.modes} />
+</Layout>

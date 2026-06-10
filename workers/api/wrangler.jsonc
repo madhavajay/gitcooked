@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gitcooked-api",
+  "main": "src/index.js",
+  "compatibility_date": "2026-06-10",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "vars": {
+    // public site origin the worker reads static ranking data from
+    "SITE_ORIGIN": "https://gitcooked.dev",
+    // GitHub OAuth app client id (public); secret via `wrangler secret put GITHUB_CLIENT_SECRET`
+    "GITHUB_CLIENT_ID": "set-me"
+  },
+  "kv_namespaces": [
+    { "binding": "CACHE", "id": "create-with: wrangler kv namespace create CACHE" }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "gitcooked",
+      "database_id": "create-with: wrangler d1 create gitcooked"
+    }
+  ]
+  // secrets (wrangler secret put ...):
+  //   GITHUB_CLIENT_SECRET  - OAuth app secret
+  //   SESSION_SECRET        - long random string for cookie signing
+}

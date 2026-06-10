@@ -1,0 +1,126 @@
+---
+const { modes, isGlobal = false, totals = {} } = Astro.props;
+const initial = (modes.commits || []).slice(0, 50);
+const payload = { modes, isGlobal, totals };
+const av = (u, s) => u.avatarUrl ? `${u.avatarUrl}${u.avatarUrl.includes('?') ? '&' : '?'}s=${s}` : '';
+---
+<div class="ranking" data-ranking>
+  <div class="tabs" data-tabs>
+    <button class="tab active" data-mode="commits">public commits</button>
+    <button class="tab" data-mode="contributions">public contributions</button>
+    <button class="tab" data-mode="all">incl. private</button>
+  </div>
+
+  <input class="filter-box" data-filter type="search" placeholder="find a github user…" autocomplete="off" />
+
+  <table class="rank-table" data-table>
+    <thead>
+      <tr>
+        <th>#</th><th>user</th><th>company</th><th>orgs</th>
+        {isGlobal && <th>locations</th>}
+        <th style="text-align:right">contribs</th>
+      </tr>
+    </thead>
+    <tbody>
+      {initial.map((u) => (
+        <tr class={u.rank <= 10 ? `t10 r${u.rank <= 3 ? u.rank : ''}` : ''}>
+          <td class="rank">{u.rank}</td>
+          <td><div class="who">
+            <img class="avatar" src={av(u, u.rank <= 10 ? 96 : 64)} alt={u.login} loading="lazy" />
+            <div>
+              <a href={`https://github.com/${u.login}`} target="_blank" rel="noopener">{u.login}</a>
+              <div class="name">{u.name}</div>
+            </div>
+          </div></td>
+          <td class="meta">{u.company}</td>
+          <td class="meta">{(u.organizations || []).slice(0, 4).map((o) => <span class="chip">{o}</span>)}</td>
+          {isGlobal && <td class="meta">{(u.locations || []).slice(0, 3).map((l) => <a class="chip" href={`/${l}`}>{l.replace(/_/g, ' ')}</a>)}</td>}
+          <td class="num">{u.contributions.toLocaleString()}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+
+  <button class="btn-more" data-more>show more</button>
+
+  <script type="application/json" data-payload set:html={JSON.stringify(payload)}></script>
+</div>
+
+<script>
+  const root = document.querySelector('[data-ranking]');
+  const { modes, isGlobal, totals } = JSON.parse(root.querySelector('[data-payload]').textContent);
+  const table = root.querySelector('[data-table]');
+  const tbody = table.querySelector('tbody');
+  const moreBtn = root.querySelector('[data-more]');
+  const filter = root.querySelector('[data-filter]');
+
+  let mode = 'commits';
+  let shown = 50;
+  const STEP = 100;
+  const loaded = { ...modes };
+  const nextPage = { commits: 1, contributions: 1, all: 1 };
+
+  const av = (u, s) => u.avatarUrl ? `${u.avatarUrl}${u.avatarUrl.includes('?') ? '&' : '?'}s=${s}` : '';
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  function row(u) {
+    const cls = u.rank <= 10 ? `t10 r${u.rank <= 3 ? u.rank : ''}` : '';
+    return `<tr class="${cls}">
+      <td class="rank">${u.rank}</td>
+      <td><div class="who">
+        <img class="avatar" src="${esc(av(u, u.rank <= 10 ? 96 : 64))}" loading="lazy" />
+        <div><a href="https://github.com/${esc(u.login)}" target="_blank" rel="noopener">${esc(u.login)}</a>
+        <div class="name">${esc(u.name)}</div></div>
+      </div></td>
+      <td class="meta">${esc(u.company)}</td>
+      <td class="meta">${(u.organizations || []).slice(0, 4).map((o) => `<span class="chip">${esc(o)}</span>`).join('')}</td>
+      ${isGlobal ? `<td class="meta">${(u.locations || []).slice(0, 3).map((l) => `<a class="chip" href="/${esc(l)}">${esc(l.replace(/_/g, ' '))}</a>`).join('')}</td>` : ''}
+      <td class="num">${u.contributions.toLocaleString()}</td>
+    </tr>`;
+  }
+
+  const renderTable = (users) => { tbody.innerHTML = users.map(row).join(''); };
+  const total = () => (isGlobal ? (totals[mode] ?? loaded[mode].length) : loaded[mode].length);
+
+  function update() {
+    renderTable(loaded[mode].slice(0, shown));
+    moreBtn.classList.toggle('hidden', shown >= total());
+    moreBtn.textContent = `show more (${Math.min(shown, total()).toLocaleString()} of ${total().toLocaleString()})`;
+  }
+
+  moreBtn.addEventListener('click', async () => {
+    shown += STEP;
+    while (isGlobal && shown > loaded[mode].length && loaded[mode].length < total()) {
+      const res = await fetch(`/data/global/${mode}/page-${nextPage[mode]}.json`);
+      if (!res.ok) break;
+      loaded[mode] = loaded[mode].concat(await res.json());
+      nextPage[mode]++;
+    }
+    update();
+  });
+
+  root.querySelectorAll('[data-mode]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      mode = btn.dataset.mode;
+      shown = 50;
+      root.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('active', b === btn));
+      update();
+    });
+  });
+
+  let searchIndex = null;
+  filter.addEventListener('input', async () => {
+    const q = filter.value.trim().toLowerCase();
+    if (!q) { update(); return; }
+    let matches = loaded[mode].filter((u) => u.login.toLowerCase().includes(q) || (u.name || '').toLowerCase().includes(q));
+    if (isGlobal && matches.length === 0 && q.length >= 2) {
+      if (!searchIndex) searchIndex = await fetch('/data/search.json').then((r) => r.json()).catch(() => []);
+      matches = searchIndex
+        .filter(([login]) => login.toLowerCase().includes(q))
+        .slice(0, 20)
+        .map(([login, rank, contributions]) => ({ login, rank, contributions, name: '', company: '', organizations: [], locations: [], avatarUrl: '' }));
+    }
+    moreBtn.classList.add('hidden');
+    renderTable(matches.slice(0, 50));
+  });
+</script>

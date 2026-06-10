@@ -1,0 +1,65 @@
+---
+import '../styles/global.css';
+const {
+  title = 'gitcooked',
+  description = 'The most cooked GitHub committers, globally and by country.',
+  og = '/og/global.jpg',
+} = Astro.props;
+const ogUrl = new URL(og, Astro.site ?? 'https://gitcooked.dev');
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={ogUrl} />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content={ogUrl} />
+  </head>
+  <body>
+    <nav class="site-nav">
+      <a href="/" class="brand">gitcooked</a>
+      <div class="links">
+        <a href="/global">global</a>
+        <a href="/#countries">countries</a>
+        <a href="/network">network</a>
+        <a href="/clusters">clusters</a>
+        <a href="/tokens">tokens</a>
+        <a href="/u">am i ranked?</a>
+      </div>
+    </nav>
+    <main>
+      <slot />
+    </main>
+    <script>
+      const ease = (t) => 1 - Math.pow(1 - t, 3);
+      const animate = (el) => {
+        const target = parseInt(el.textContent.replace(/[^0-9]/g, ''), 10);
+        if (!target || target < 10) return;
+        const prefix = el.textContent.match(/^[^\d]*/)[0];
+        const start = performance.now();
+        const dur = 900;
+        const tick = (now) => {
+          const t = Math.min(1, (now - start) / dur);
+          el.textContent = prefix + Math.round(ease(t) * target).toLocaleString();
+          if (t < 1) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      };
+      const seen = new WeakSet();
+      const io = new IntersectionObserver((entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting && !seen.has(e.target)) { seen.add(e.target); animate(e.target); }
+        }
+      });
+      document.querySelectorAll('.stat .num').forEach((el) => {
+        if (/^[#]?[\d,]+$/.test(el.textContent.trim())) io.observe(el);
+      });
+    </script>
+  </body>
+</html>

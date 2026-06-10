@@ -1,0 +1,25 @@
+name: Index request
+description: Request to be indexed in the gitcooked rankings
+title: "index request: <your-github-username>"
+labels: [index-request]
+body:
+  - type: input
+    id: login
+    attributes:
+      label: GitHub username
+      placeholder: octocat
+    validations:
+      required: true
+  - type: input
+    id: location
+    attributes:
+      label: Your GitHub profile location (as written on your profile)
+      placeholder: e.g. "Brisbane, Australia"
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        Notes:
+        - Rankings come from GitHub search, which requires a minimum follower count per country (shown on each country page).
+        - If your location isn't being matched, adding your country name to your GitHub profile location usually fixes it.

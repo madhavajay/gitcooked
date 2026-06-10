@@ -1,0 +1,105 @@
+---
+import countries from '../geo/countries.json';
+import index from '../data/index.json';
+
+const features = index
+  .filter((l) => l.slug !== 'worldwide' && countries[l.slug])
+  .map((l) => {
+    const c = countries[l.slug];
+    return {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [c.lng, c.lat] },
+      properties: {
+        slug: l.slug,
+        title: l.title,
+        devs: l.totalUserCount ?? 0,
+        ranked: l.rankedUsers,
+      },
+    };
+  });
+const geojson = { type: 'FeatureCollection', features };
+---
+<div id="world-map"></div>
+<script type="application/json" id="map-data" set:html={JSON.stringify(geojson)}></script>
+
+<script>
+  import maplibregl from 'maplibre-gl';
+  import 'maplibre-gl/dist/maplibre-gl.css';
+
+  const data = JSON.parse(document.getElementById('map-data').textContent);
+  const map = new maplibregl.Map({
+    container: 'world-map',
+    style: 'https://basemaps.cartocdn.com/gl/dark-matter-nolabels-gl-style/style.json',
+    center: [15, 25],
+    zoom: 1.4,
+    attributionControl: { compact: true },
+  });
+  map.scrollZoom.disable();
+  map.addControl(new maplibregl.NavigationControl({ showCompass: false }));
+
+  map.on('load', () => {
+    map.addSource('countries', { type: 'geojson', data });
+    const radius = ['interpolate', ['linear'], ['sqrt', ['get', 'devs']], 0, 4, 1200, 34];
+    map.addLayer({
+      id: 'glow',
+      type: 'circle',
+      source: 'countries',
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['sqrt', ['get', 'devs']], 0, 8, 1200, 52],
+        'circle-color': '#2ee6ff',
+        'circle-opacity': 0.12,
+        'circle-blur': 1,
+      },
+    });
+    map.addLayer({
+      id: 'bubbles',
+      type: 'circle',
+      source: 'countries',
+      paint: {
+        'circle-radius': radius,
+        'circle-color': '#0c0e1a',
+        'circle-opacity': 0.6,
+        'circle-stroke-width': 1.6,
+        'circle-stroke-color': '#2ee6ff',
+      },
+    });
+
+    const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12 });
+    map.on('mousemove', 'bubbles', (e) => {
+      map.getCanvas().style.cursor = 'pointer';
+      const p = e.features[0].properties;
+      popup
+        .setLngLat(e.features[0].geometry.coordinates)
+        .setHTML(`<strong>${p.title}</strong><br>${Number(p.devs).toLocaleString()} devs · top ${p.ranked} ranked`)
+        .addTo(map);
+    });
+    map.on('mouseleave', 'bubbles', () => {
+      map.getCanvas().style.cursor = '';
+      popup.remove();
+    });
+    map.on('click', 'bubbles', (e) => {
+      location.href = `/${e.features[0].properties.slug}`;
+    });
+  });
+</script>
+
+<style>
+  #world-map {
+    height: 480px;
+    border-radius: 16px;
+    border: 1px solid var(--line);
+    overflow: hidden;
+    margin: 26px 0;
+    box-shadow: 0 0 40px #2ee6ff11;
+  }
+  #world-map :global(.maplibregl-popup-content) {
+    background: #0c0e1a;
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    font-family: inherit;
+    box-shadow: 0 0 18px #2ee6ff33;
+  }
+  #world-map :global(.maplibregl-popup-tip) { border-top-color: #0c0e1a; }
+  @media (max-width: 640px) { #world-map { height: 320px; } }
+</style>
