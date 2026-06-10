@@ -14,6 +14,26 @@ import Layout from '../layouts/Layout.astro';
     <button class="tab" id="net-geo">🌍 geo layout</button>
     <button class="tab" id="net-reset">reset</button>
   </div>
+  <div class="net-controls">
+    <input class="filter-box" id="net-country" list="country-list" placeholder="filter countries… (add 1+)" autocomplete="off" />
+    <datalist id="country-list"></datalist>
+    <span id="country-chips"></span>
+    <label class="slider-label">top <span id="rank-cap-val">3,000</span> by rank
+      <input type="range" id="rank-cap" min="100" max="8000" step="100" value="3000" />
+    </label>
+    <label class="slider-label">min <span id="min-followers-val">0</span> followers
+      <input type="range" id="min-followers" min="0" max="100" step="1" value="0" />
+    </label>
+    <button class="tab" id="net-loners" title="hide nodes with no visible links in the current view">hide unlinked</button>
+    <label class="slider-label">right-click removes
+      <select id="hide-hops" class="tab" style="cursor:pointer">
+        <option value="0">node</option>
+        <option value="1">+1 hop</option>
+        <option value="2">+2 hops</option>
+      </select>
+    </label>
+    <button class="tab hidden" id="net-unhide"></button>
+  </div>
   <p class="sub" id="net-status"></p>
   <div id="net-sim" class="hidden" style="color:var(--magenta);font-weight:700;letter-spacing:2px">⚠ SIMULATED DATA — for UI testing only</div>
 
@@ -213,14 +233,48 @@ import Layout from '../layouts/Layout.astro';
       try { Graph.d3ReheatSimulation(); } catch { /* engine not ready yet */ }
     }
 
+    // ---- filters ----
+    const filterCountries = new Set();
+    let rankCap = 3000;
+    let minFollowers = 0;
+    let hideLoners = false;
+    const hiddenSet = new Set();
+    let hideHops = 0;
+
+    function filteredNodes() {
+      let nodes = DATA.nodes.filter((n) => !hiddenSet.has(n.id));
+      if (filterCountries.size) nodes = nodes.filter((n) => filterCountries.has(n.country));
+      if (minFollowers > 0) nodes = nodes.filter((n) => (n.followers ?? 0) >= minFollowers);
+      return nodes.slice(0, rankCap); // nodes are pre-sorted by rank
+    }
+
+    function updateUnhideBtn() {
+      const btn = document.getElementById('net-unhide');
+      btn.classList.toggle('hidden', hiddenSet.size === 0);
+      btn.textContent = `unhide ${hiddenSet.size}`;
+    }
+
     function fullView() {
       highlightSet = new Set();
       focusSet = null;
-      const cap = 3000;
-      const keep = new Set(DATA.nodes.slice(0, cap).map((n) => n.id));
-      const links = DATA.links.filter(([a, b]) => keep.has(a) && keep.has(b));
-      render(DATA.nodes.filter((n) => keep.has(n.id)), links);
-      status.textContent = `showing top ${Math.min(cap, DATA.nodes.length).toLocaleString()} of ${DATA.nodes.length.toLocaleString()} connected devs · ${DATA.links.length.toLocaleString()} edges · color = region, purple links = mutual follows · zoom in for faces`;
+      let nodes = filteredNodes();
+      let keep = new Set(nodes.map((n) => n.id));
+      let links = DATA.links.filter(([a, b]) => keep.has(a) && keep.has(b));
+      if (hideLoners) {
+        const linked = new Set();
+        for (const [a, b] of links) { linked.add(a); linked.add(b); }
+        nodes = nodes.filter((n) => linked.has(n.id));
+        keep = new Set(nodes.map((n) => n.id));
+        links = links.filter(([a, b]) => keep.has(a) && keep.has(b));
+      }
+      render(nodes, links);
+      const filters = [
+        filterCountries.size ? [...filterCountries].map((s) => s.replace(/_/g, ' ')).join(' + ') : null,
+        minFollowers > 0 ? `≥${minFollowers.toLocaleString()} followers` : null,
+        hideLoners ? 'unlinked hidden' : null,
+        hiddenSet.size ? `${hiddenSet.size} removed` : null,
+      ].filter(Boolean).join(' · ');
+      status.textContent = `showing ${nodes.length.toLocaleString()} of ${DATA.nodes.length.toLocaleString()} connected devs${filters ? ` (${filters})` : ''} · ${links.length.toLocaleString()} edges · purple links = mutual follows · zoom in for faces · right-click removes`;
     }
 
     function egoView(login) {
@@ -303,6 +357,12 @@ import Layout from '../layouts/Layout.astro';
           document.getElementById('net-user').value = n.login;
           egoView(n.login);
         })
+        .onNodeRightClick((n) => {
+          const zone = egoSet(n.id, hideHops, 2000);
+          for (const id of zone.keys()) hiddenSet.add(id);
+          updateUnhideBtn();
+          fullView();
+        })
         .width(el.clientWidth)
         .height(el.clientHeight);
 
@@ -333,8 +393,68 @@ import Layout from '../layouts/Layout.astro';
     document.getElementById('net-reset').addEventListener('click', () => {
       document.getElementById('net-user').value = '';
       document.getElementById('net-path').value = '';
+      document.getElementById('net-country').value = '';
+      filterCountries.clear();
+      hiddenSet.clear();
+      updateUnhideBtn();
+      renderChips();
       fullView();
     });
+    document.getElementById('net-loners').addEventListener('click', (e) => {
+      hideLoners = !hideLoners;
+      e.target.classList.toggle('active', hideLoners);
+      fullView();
+    });
+    document.getElementById('hide-hops').addEventListener('change', (e) => {
+      hideHops = Number(e.target.value);
+    });
+    document.getElementById('net-unhide').addEventListener('click', () => {
+      hiddenSet.clear();
+      updateUnhideBtn();
+      fullView();
+    });
+
+    // ---- filter wiring ----
+    const slugByTitle = new Map(Object.entries(countries).map(([slug, c]) => [c.title.toLowerCase(), slug]));
+    const datalist = document.getElementById('country-list');
+    for (const c of Object.values(countries)) {
+      const o = document.createElement('option');
+      o.value = c.title;
+      datalist.appendChild(o);
+    }
+
+    function renderChips() {
+      document.getElementById('country-chips').innerHTML = [...filterCountries]
+        .map((s) => `<button class="chip chip-x" data-slug="${s}">${countries[s]?.title ?? s} ×</button>`)
+        .join(' ');
+      document.querySelectorAll('.chip-x').forEach((b) =>
+        b.addEventListener('click', () => { filterCountries.delete(b.dataset.slug); renderChips(); fullView(); })
+      );
+    }
+
+    document.getElementById('net-country').addEventListener('change', (e) => {
+      const slug = slugByTitle.get(e.target.value.trim().toLowerCase());
+      if (slug) {
+        filterCountries.add(slug);
+        e.target.value = '';
+        renderChips();
+        fullView();
+      }
+    });
+
+    const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+    document.getElementById('rank-cap').addEventListener('input', debounce((e) => {
+      rankCap = Number(e.target.value);
+      document.getElementById('rank-cap-val').textContent = rankCap.toLocaleString();
+      fullView();
+    }, 250));
+    document.getElementById('min-followers').addEventListener('input', debounce((e) => {
+      // log scale: 0..100 -> 0..~10k
+      const v = Number(e.target.value);
+      minFollowers = v === 0 ? 0 : Math.round(Math.pow(10, v / 25));
+      document.getElementById('min-followers-val').textContent = minFollowers.toLocaleString();
+      fullView();
+    }, 250));
 
     init();
   </script>
@@ -350,5 +470,14 @@ import Layout from '../layouts/Layout.astro';
     }
     .net-controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 14px 0 4px; }
     .net-controls .filter-box { max-width: 280px; }
+    #net-country { max-width: 220px; }
+    .slider-label {
+      display: inline-flex; align-items: center; gap: 8px;
+      color: var(--muted); font-size: 12px; font-family: ui-monospace, Menlo, monospace;
+    }
+    .slider-label span { color: var(--cyan); }
+    input[type='range'] { accent-color: #8a5cff; width: 140px; }
+    .chip-x { cursor: pointer; background: #8a5cff22; border-color: var(--violet); color: var(--text); font-family: inherit; font-size: 11px; }
+    .chip-x:hover { background: #ff3df222; border-color: var(--magenta); }
   </style>
 </Layout>

@@ -83,6 +83,7 @@ def main():
     for login in sorted(keep, key=lambda l: ranked[l]["rank"]):
         u = ranked[login]
         idx[login] = len(nodes)
+        rec = store.get(login)
         nodes.append(
             {
                 "id": len(nodes),
@@ -92,6 +93,7 @@ def main():
                 "rank": u["rank"],
                 "contributions": u["contributions"],
                 "crawled": login in store,
+                "followers": rec.get("followerCount") if rec else None,
             }
         )
 
