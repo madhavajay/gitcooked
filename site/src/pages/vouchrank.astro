@@ -1,23 +1,51 @@
 ---
 import Layout from '../layouts/Layout.astro';
+import top from '../data/vouchrank_top.json';
+
+const initial = top.slice(0, 50);
+const av = (u, s) => u.avatarUrl ? `${u.avatarUrl}${u.avatarUrl.includes('?') ? '&' : '?'}s=${s}` : '';
 ---
 <Layout title="VouchRank — gitcooked" description="A PageRank-style trust score over the GitHub follow graph. Who do the most cooked devs actually pay attention to?">
   <h1 class="glow">VouchRank</h1>
   <p class="sub">
-    follows are vouches. VouchRank runs PageRank over who-follows-whom among the most active
-    committers on GitHub — attention from highly-ranked devs is worth more, and it flows
-    through the graph, so bot followers that nobody follows are worth ~nothing.
+    follows are vouches. PageRank over who-follows-whom among the most active committers —
+    attention from highly-ranked devs is worth more, and it flows through the graph,
+    so bot followers that nobody follows are worth ~nothing. <a href="#how">how it works ↓</a>
   </p>
 
-  <input class="filter-box" id="vr-input" type="search" placeholder="github username…" autocomplete="off" autofocus />
+  <input class="filter-box" data-filter type="search" placeholder="find a github user…" autocomplete="off" />
   <div id="vr-result"></div>
 
-  <h2 class="section-title">top 50</h2>
-  <table class="rank-table"><thead>
-    <tr><th>#</th><th>user</th><th>followers</th><th style="text-align:right">score</th></tr>
-  </thead><tbody id="vr-board"></tbody></table>
+  <table class="rank-table" data-table>
+    <thead>
+      <tr>
+        <th>#</th><th>user</th><th>company</th><th>followers</th><th>contrib rank</th>
+        <th style="text-align:right">score</th>
+      </tr>
+    </thead>
+    <tbody>
+      {initial.map((u) => (
+        <tr class={u.vrRank <= 10 ? `t10 r${u.vrRank <= 3 ? u.vrRank : ''}` : ''}>
+          <td class="rank">{u.vrRank}</td>
+          <td><div class="who">
+            <img class="avatar" src={av(u, u.vrRank <= 10 ? 96 : 64)} alt={u.login} loading="lazy" />
+            <div>
+              <a href={`/vouchrank?u=${u.login}`}>{u.login}</a>
+              <div class="name">{u.name}</div>
+            </div>
+          </div></td>
+          <td class="meta">{u.company}</td>
+          <td class="meta">{u.followers != null ? u.followers.toLocaleString() : `${u.inNetwork.toLocaleString()} in-network`}</td>
+          <td class="meta">{u.contribRank ? `#${u.contribRank.toLocaleString()}` : '—'}</td>
+          <td class="num">{u.score}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
 
-  <h2 class="section-title">how it's calculated</h2>
+  <button class="btn-more" data-more>show more</button>
+
+  <h2 class="section-title" id="how">how it's calculated</h2>
   <div class="vr-method">
     <ol>
       <li>we crawl the follow graph of the ~38k ranked committers (top 1000 global + top 25 of every country, then their networks)</li>
@@ -28,57 +56,103 @@ import Layout from '../layouts/Layout.astro';
     <p class="sub">you can't game it with follower bots: a vouch only carries weight if the voucher is vouched for. share your score: <span class="mono">gitcooked.dev/vouchrank?u=YOU</span></p>
   </div>
 
+  <script type="application/json" data-vr-initial set:html={JSON.stringify(initial)}></script>
   <script>
-    const input = document.getElementById('vr-input');
     const result = document.getElementById('vr-result');
-    const board = document.getElementById('vr-board');
-    let DATA = null;
+    const tbody = document.querySelector('[data-table] tbody');
+    const moreBtn = document.querySelector('[data-more]');
+    const filter = document.querySelector('[data-filter]');
+
+    let loaded = JSON.parse(document.querySelector('[data-vr-initial]').textContent);
+    let shown = 50;
+    let total = null;
+    let nextPage = 0; // page-0 includes the SSR rows; we dedupe by slicing
+    let lookup = null; // compact map for any-user lookup
 
     const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const fmt = (n) => (n == null ? '—' : n.toLocaleString());
+    const av = (u, s) => u.avatarUrl ? `${u.avatarUrl}${u.avatarUrl.includes('?') ? '&' : '?'}s=${s}` : '';
 
-    async function load() {
-      DATA = await fetch('/data/vouchrank.json').then((r) => r.json());
-      const entries = Object.entries(DATA.users).sort((a, b) => a[1][0] - b[1][0]);
-      board.innerHTML = entries.slice(0, 50).map(([login, [vrRank, score, followers]]) => `
-        <tr class="${vrRank <= 10 ? `t10 r${vrRank <= 3 ? vrRank : ''}` : ''}">
-          <td class="rank">${vrRank}</td>
-          <td><a href="/vouchrank?u=${esc(login)}">${esc(login)}</a></td>
-          <td class="meta">${fmt(followers)}</td>
-          <td class="num">${score}</td>
-        </tr>`).join('');
-      const u = new URLSearchParams(location.search).get('u');
-      if (u) { input.value = u; show(u); }
+    function row(u) {
+      const cls = u.vrRank <= 10 ? `t10 r${u.vrRank <= 3 ? u.vrRank : ''}` : '';
+      return `<tr class="${cls}">
+        <td class="rank">${u.vrRank}</td>
+        <td><div class="who">
+          <img class="avatar" src="${esc(av(u, u.vrRank <= 10 ? 96 : 64))}" loading="lazy" />
+          <div><a href="/vouchrank?u=${esc(u.login)}">${esc(u.login)}</a>
+          <div class="name">${esc(u.name)}</div></div>
+        </div></td>
+        <td class="meta">${esc(u.company)}</td>
+        <td class="meta">${u.followers != null ? fmt(u.followers) : `${fmt(u.inNetwork)} in-network`}</td>
+        <td class="meta">${u.contribRank ? `#${fmt(u.contribRank)}` : '—'}</td>
+        <td class="num">${u.score}</td>
+      </tr>`;
     }
 
-    function show(login) {
-      const hit = Object.entries(DATA.users).find(([l]) => l.toLowerCase() === login.toLowerCase());
-      if (!hit) {
-        result.innerHTML = `<p class="sub">${esc(login)} isn't in the crawled graph yet — it grows daily.
-          <a href="/u">check your contribution rank instead →</a></p>`;
-        return;
+    async function ensureMeta() {
+      if (total == null) {
+        const m = await fetch('/data/vouchrank_pages/meta.json').then((r) => r.json()).catch(() => ({ total: loaded.length }));
+        total = m.total;
       }
-      const [name, [vrRank, score, followers, following, contribRank]] = hit;
-      const pct = Math.max(1, Math.round((vrRank / Object.keys(DATA.users).length) * 100));
+    }
+
+    function update() {
+      tbody.innerHTML = loaded.slice(0, shown).map(row).join('');
+      moreBtn.classList.toggle('hidden', total != null && shown >= total);
+      moreBtn.textContent = `show more (${Math.min(shown, total ?? loaded.length).toLocaleString()} of ${(total ?? loaded.length).toLocaleString()})`;
+      window.gcHighlightMe?.();
+    }
+
+    moreBtn.addEventListener('click', async () => {
+      await ensureMeta();
+      shown += 100;
+      while (shown > loaded.length && loaded.length < total) {
+        const res = await fetch(`/data/vouchrank_pages/page-${nextPage}.json`);
+        if (!res.ok) break;
+        const page = await res.json();
+        loaded = loaded.concat(page.filter((u) => u.vrRank > loaded.length));
+        nextPage++;
+      }
+      update();
+    });
+
+    async function showCard(login) {
+      if (!lookup) lookup = await fetch('/data/vouchrank.json').then((r) => r.json()).catch(() => null);
+      if (!lookup) return false;
+      const hit = Object.entries(lookup.users).find(([l]) => l.toLowerCase() === login.toLowerCase());
+      if (!hit) {
+        result.innerHTML = `<p class="sub">${esc(login)} isn't in the crawled graph yet — it grows daily. <a href="/u">check your contribution rank →</a></p>`;
+        return false;
+      }
+      const [name, [vrRank, score, followers, following, contribRank, indeg]] = hit;
+      const pct = Math.max(1, Math.round((vrRank / Object.keys(lookup.users).length) * 100));
       history.replaceState(null, '', `?u=${name}`);
       result.innerHTML = `
         <div class="stats-row" style="margin-top:22px">
           <div class="stat"><div class="num">${score}</div><div class="label">vouchrank score</div></div>
-          <div class="stat"><div class="num">#${vrRank.toLocaleString()}</div><div class="label">of ${Object.keys(DATA.users).length.toLocaleString()} · top ${pct}%</div></div>
-          <div class="stat"><div class="num">${fmt(followers)}</div><div class="label">followers</div></div>
-          <div class="stat"><div class="num">${fmt(following)}</div><div class="label">following</div></div>
-          ${contribRank ? `<div class="stat"><div class="num">#${contribRank.toLocaleString()}</div><div class="label">contribution rank</div></div>` : ''}
+          <div class="stat"><div class="num">#${fmt(vrRank)}</div><div class="label">of ${fmt(Object.keys(lookup.users).length)} · top ${pct}%</div></div>
+          <div class="stat"><div class="num">${followers != null ? fmt(followers) : fmt(indeg)}</div><div class="label">${followers != null ? 'followers' : 'in-network followers'}</div></div>
+          ${following != null ? `<div class="stat"><div class="num">${fmt(following)}</div><div class="label">following</div></div>` : ''}
+          ${contribRank ? `<div class="stat"><div class="num">#${fmt(contribRank)}</div><div class="label">contribution rank</div></div>` : ''}
         </div>
+        ${followers == null ? `<p class="sub">this profile hasn't been crawled yet — the score comes from ${fmt(indeg)} known in-network followers.</p>` : ''}
         <p><a href="/network?u=${esc(name)}">see ${esc(name)}'s network →</a></p>`;
+      return true;
     }
 
     const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
-    input.addEventListener('input', debounce(() => {
-      const q = input.value.trim();
-      if (q && DATA) show(q);
+    filter.addEventListener('input', debounce(async () => {
+      const q = filter.value.trim().toLowerCase();
+      if (!q) { result.innerHTML = ''; update(); return; }
+      const matches = loaded.filter((u) => u.login.toLowerCase().includes(q) || (u.name || '').toLowerCase().includes(q));
+      tbody.innerHTML = matches.slice(0, 50).map(row).join('');
+      moreBtn.classList.add('hidden');
+      if (q.length >= 2) await showCard(q);
     }, 250));
 
-    load();
+    const u = new URLSearchParams(location.search).get('u');
+    if (u) { filter.value = u; showCard(u); }
+    update();
   </script>
 
   <style>
