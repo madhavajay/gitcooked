@@ -30,6 +30,7 @@ const ogUrl = new URL(og, Astro.site ?? 'https://gitcooked.dev');
         <a href="/network">network</a>
         <a href="/clusters">repos</a>
         <a href="/vouchrank">vouchrank</a>
+        <a href="/vouched">vouched</a>
         <a href="/tokens">tokens</a>
         <a href="/u">am i ranked?</a>
         <a href="#" id="nav-auth"></a>
@@ -38,6 +39,12 @@ const ogUrl = new URL(og, Astro.site ?? 'https://gitcooked.dev');
     <main>
       <slot />
     </main>
+    <footer class="site-footer">
+      a fork of <a href="https://committers.top/" target="_blank" rel="noopener">committers.top</a>
+      by <a href="https://github.com/ashkulz" target="_blank" rel="noopener">@ashkulz</a>
+      — ranking data collected with his
+      <a href="https://github.com/ashkulz/committers.top" target="_blank" rel="noopener">most-active-github-users-counter</a>
+    </footer>
     <script>
       const ease = (t) => 1 - Math.pow(1 - t, 3);
       const animate = (el) => {

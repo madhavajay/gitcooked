@@ -160,6 +160,29 @@ def main():
     total_vouches = sum(len(r["vouched"]) for r in cache.values())
     print(f"{fresh_count} files fetched this run; cache: {len(cache)} repos, {total_vouches} vouches")
 
+    # site data: repo-level view for the /vouched page
+    site_out = ROOT / "site" / "src" / "data" / "vouched_repos.json"
+    repos = sorted(cache.values(), key=lambda r: -len(r["vouched"]))
+    site_out.write_text(
+        json.dumps(
+            {
+                "generatedAt": datetime.now(timezone.utc).isoformat(),
+                "repos": [
+                    {
+                        "repo": r["repo"],
+                        "path": r["path"],
+                        "vouched": r["vouched"],
+                        "denounced": r["denounced"],
+                        "fetchedAt": r["fetchedAt"],
+                    }
+                    for r in repos
+                ],
+            },
+            ensure_ascii=False,
+        )
+    )
+    print(f"{len(repos)} repos -> {site_out}")
+
 
 if __name__ == "__main__":
     main()

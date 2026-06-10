@@ -1,0 +1,157 @@
+---
+import Layout from '../layouts/Layout.astro';
+import vouchedRepos from '../data/vouched_repos.json';
+import global from '../data/global.json';
+
+const ranked = new Map(global.modes.commits.map((u) => [u.login.toLowerCase(), u]));
+
+const score = {};
+for (const r of vouchedRepos.repos) {
+  for (const v of r.vouched) {
+    const s = (score[v.login] ??= { login: v.login, vouched: [], denounced: [] });
+    s.vouched.push(r.repo);
+  }
+  for (const v of r.denounced) {
+    const s = (score[v.login] ??= { login: v.login, vouched: [], denounced: [] });
+    s.denounced.push(r.repo);
+  }
+}
+const board = Object.values(score)
+  .map((s) => ({ ...s, score: s.vouched.length - s.denounced.length, user: ranked.get(s.login.toLowerCase()) }))
+  .sort((a, b) => b.score - a.score)
+  .slice(0, 50);
+
+const totalVouches = vouchedRepos.repos.reduce((n, r) => n + r.vouched.length, 0);
+const av = (u, s) => u?.avatarUrl ? `${u.avatarUrl}${u.avatarUrl.includes('?') ? '&' : '?'}s=${s}` : '';
+---
+<Layout title="vouched — gitcooked" description="VOUCHED.td files across GitHub: who projects vouch for, indexed.">
+  <h1 class="glow">vouched</h1>
+  <p class="sub">
+    projects vouch for contributors in <a href="https://github.com/mitchellh/vouch" target="_blank" rel="noopener"><span class="mono">VOUCHED.td</span></a> files.
+    we index all of them — {vouchedRepos.repos.length} repos, {totalVouches.toLocaleString()} vouches —
+    and the <a href="/denounced">denouncements</a> too.
+  </p>
+
+  <h2 class="section-title">look up / index a repository</h2>
+  <p class="sub">instant check of any repo's <span class="mono">VOUCHED.td</span> — new files are auto-discovered by the nightly index run.</p>
+  <input class="filter-box" id="repo-input" type="search" placeholder="owner/repo…" autocomplete="off" />
+  <div id="repo-result"></div>
+
+  <h2 class="section-title">most vouched</h2>
+  <p class="sub">score = project vouches − denouncements</p>
+  <table class="rank-table">
+    <thead><tr><th>#</th><th>user</th><th>vouched by</th><th>denounced</th><th style="text-align:right">score</th></tr></thead>
+    <tbody>
+      {board.map((s, i) => (
+        <tr class={i < 10 ? `t10 r${i < 3 ? i + 1 : ''}` : ''}>
+          <td class="rank">{i + 1}</td>
+          <td><div class="who">
+            {s.user && <img class="avatar" src={av(s.user, 64)} loading="lazy" />}
+            <div>
+              <a href={s.user && s.user.rank <= 1000 ? `/u/${s.login}` : `https://github.com/${s.login}`}>{s.login}</a>
+              {s.user && <div class="name">contrib #{s.user.rank.toLocaleString()}</div>}
+            </div>
+          </div></td>
+          <td class="meta">{s.vouched.slice(0, 4).map((r) => <a class="chip chip-good" href={`https://github.com/${r}`} target="_blank" rel="noopener">{r}</a>)}{s.vouched.length > 4 && <span class="chip">+{s.vouched.length - 4}</span>}</td>
+          <td class="meta">{s.denounced.map((r) => <a class="chip chip-bad" href={`https://github.com/${r}`} target="_blank" rel="noopener">{r}</a>)}</td>
+          <td class="num">{s.score}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+
+  <h2 class="section-title">indexed repos</h2>
+  <table class="rank-table">
+    <thead><tr><th>repo</th><th style="text-align:right">vouched</th><th style="text-align:right">denounced</th></tr></thead>
+    <tbody>
+      {vouchedRepos.repos.slice(0, 100).map((r) => (
+        <tr>
+          <td><a href={`?repo=${r.repo}`}>{r.repo}</a></td>
+          <td class="num">{r.vouched.length}</td>
+          <td class="num" style={r.denounced.length ? 'color:#ff8c8c' : ''}>{r.denounced.length || ''}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+
+  <script type="application/json" id="vouched-data" set:html={JSON.stringify(vouchedRepos.repos.map((r) => ({ repo: r.repo, vouched: r.vouched, denounced: r.denounced })))}></script>
+  <script>
+    const INDEXED = new Map(JSON.parse(document.getElementById('vouched-data').textContent).map((r) => [r.repo.toLowerCase(), r]));
+    const input = document.getElementById('repo-input');
+    const result = document.getElementById('repo-result');
+    const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+    const LOGIN_RE = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/;
+    function parseVouched(text) {
+      const vouched = [], denounced = [];
+      for (let line of text.split('\n')) {
+        line = line.trim();
+        if (!line || line.startsWith('#')) continue;
+        const tokens = line.split(/\s+/);
+        let entry = tokens[0];
+        let neg = false;
+        let note;
+        if (['+', '-', '*'].includes(entry) && tokens.length > 1) {
+          neg = entry === '-';
+          entry = tokens[1];
+          note = tokens.slice(2).join(' ');
+        } else {
+          note = tokens.slice(1).join(' ');
+          if (entry.startsWith('-')) { neg = true; entry = entry.slice(1); }
+          else if (entry.startsWith('+')) entry = entry.slice(1);
+        }
+        entry = entry.replace(/^@/, '');
+        if (entry.includes(':')) {
+          const [platform, handle] = entry.split(':');
+          if (platform.toLowerCase() !== 'github') continue;
+          entry = handle;
+        }
+        if (!LOGIN_RE.test(entry)) continue;
+        (neg ? denounced : vouched).push({ login: entry, note: note.slice(0, 140) });
+      }
+      return { vouched, denounced };
+    }
+
+    function show(repo, data, live) {
+      const chips = (list, cls) => list.map((v) =>
+        `<a class="chip ${cls}" href="https://github.com/${esc(v.login)}" target="_blank" rel="noopener" title="${esc(v.note)}">${esc(v.login)}</a>`).join(' ');
+      result.innerHTML = `
+        <div class="repo-card">
+          <div><a href="https://github.com/${esc(repo)}" target="_blank" rel="noopener"><b>${esc(repo)}</b></a>
+            <span class="sub">${live ? 'live lookup — will join the index on the next nightly run' : 'in the index'}</span></div>
+          ${data.vouched.length ? `<p>vouched (${data.vouched.length}): ${chips(data.vouched, 'chip-good')}</p>` : '<p class="sub">no vouches listed</p>'}
+          ${data.denounced.length ? `<p>denounced (${data.denounced.length}): ${chips(data.denounced, 'chip-bad')}</p>` : ''}
+        </div>`;
+    }
+
+    async function lookup(repo) {
+      repo = repo.trim().replace(/^https?:\/\/github\.com\//, '').replace(/\/$/, '');
+      if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return;
+      history.replaceState(null, '', `?repo=${repo}`);
+      const hit = INDEXED.get(repo.toLowerCase());
+      if (hit) { show(hit.repo, hit, false); return; }
+      result.innerHTML = '<p class="sub">checking github…</p>';
+      for (const path of ['.github/VOUCHED.td', 'VOUCHED.td']) {
+        try {
+          const r = await fetch(`https://raw.githubusercontent.com/${repo}/HEAD/${path}`);
+          if (r.ok) { show(repo, parseVouched(await r.text()), true); return; }
+        } catch { /* try next */ }
+      }
+      result.innerHTML = `<p class="sub">no <span class="mono">VOUCHED.td</span> found in ${esc(repo)} —
+        <a href="https://github.com/mitchellh/vouch" target="_blank" rel="noopener">add one</a> (root or .github/) and it gets indexed automatically.</p>`;
+    }
+
+    let t;
+    input.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => lookup(input.value), 400); });
+    const q = new URLSearchParams(location.search).get('repo');
+    if (q) { input.value = q; lookup(q); }
+  </script>
+
+  <style is:global>
+    .repo-card {
+      border: 1px solid var(--line); border-radius: 14px; padding: 16px 20px;
+      background: var(--panel); margin-top: 14px; max-width: 760px;
+    }
+    .repo-card .sub { margin-left: 10px; font-size: 12px; }
+  </style>
+</Layout>

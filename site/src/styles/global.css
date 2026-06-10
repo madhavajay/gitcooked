@@ -192,6 +192,11 @@ table.rank-table { width: 100%; border-collapse: collapse; font-size: 14px; marg
 .section-title { font-size: 20px; margin: 44px 0 4px; color: var(--text); }
 .hidden { display: none; }
 
+.site-footer {
+  max-width: 1080px; margin: 0 auto; padding: 28px 20px 40px;
+  border-top: 1px solid var(--line); color: var(--muted); font-size: 13px;
+}
+
 .profile-hero { display: flex; align-items: center; gap: 24px; margin: 36px 0 10px; flex-wrap: wrap; }
 .profile-avatar {
   width: 120px; height: 120px; border-radius: 50%; border: 3px solid var(--violet);
