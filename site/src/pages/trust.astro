@@ -1,0 +1,253 @@
+---
+import Layout from '../layouts/Layout.astro';
+import top from '../data/trust_top.json';
+
+const initial = top.slice(0, 50);
+const av = (u, s) => u.avatarUrl ? `${u.avatarUrl}${u.avatarUrl.includes('?') ? '&' : '?'}s=${s}` : '';
+const tr = (score) => Math.round(score / 100);
+---
+<Layout title="TrustScore — gitcooked" description="TR 0–10: an explainable trust rank for developers, derived from the follow network, activity, and vouches.">
+  <h1 class="glow">TrustScore</h1>
+  <p class="sub">
+    one number, 0–1000, fully explainable — like PageRank's old TR 0–10, for developers.
+    network attention + proximity to the trusted core + shipping activity, adjusted by
+    real vouches &amp; denouncements. <a href="#how">how it works ↓</a>
+  </p>
+
+  <input class="filter-box" data-filter type="search" placeholder="look up any github user…" autocomplete="off" />
+  <div id="trust-result"></div>
+
+  <h2 class="section-title">trust board</h2>
+  <table class="rank-table" data-table>
+    <thead>
+      <tr>
+        <th>#</th><th>user</th><th>TR</th><th>network</th><th>activity</th><th>vouches</th>
+        <th style="text-align:right">score</th>
+      </tr>
+    </thead>
+    <tbody>
+      {initial.map((u) => (
+        <tr class={u.trustRank <= 10 ? `t10 r${u.trustRank <= 3 ? u.trustRank : ''}` : ''}>
+          <td class="rank">{u.trustRank}</td>
+          <td><div class="who">
+            <img class="avatar" src={av(u, u.trustRank <= 10 ? 96 : 64)} alt={u.login} loading="lazy" />
+            <div>
+              <a href={`/trust?u=${u.login}`}>{u.login}</a>
+              <div class="name">{u.name}</div>
+            </div>
+          </div></td>
+          <td><span class="tr-badge">TR{tr(u.score)}</span></td>
+          <td class="meta mono">{u.parts[0] + u.parts[1]}</td>
+          <td class="meta mono">{u.parts[2]}</td>
+          <td class="meta mono">{u.parts[3] + u.parts[4] === 0 ? '—' : (u.parts[3] + u.parts[4] > 0 ? '+' : '') + (u.parts[3] + u.parts[4])}</td>
+          <td class="num">{u.score}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+  <button class="btn-more" data-more>show more</button>
+
+  <h2 class="section-title" id="how">how it's calculated</h2>
+  <div class="vr-method">
+    <ol>
+      <li><b>network attention (0–400)</b> — <a href="/vouchrank">VouchRank</a>: PageRank over who-follows-whom among ranked committers; attention from trusted devs is worth more</li>
+      <li><b>bacon index (0–200)</b> — proximity to the trusted core: harmonic mean of your distance to the top-50 VouchRank devs</li>
+      <li><b>activity (0–300)</b> — your contribution rank, log-scaled (#1 = 300)</li>
+      <li><b>vouches (+0–100)</b> — +20 per distinct project owner that vouches for you (<span class="mono">VOUCHED.td</span> / <span class="mono">gitcooked.json</span>); owner-deduped so repo farms don't count</li>
+      <li><b>denouncements (−80 each)</b> — distinct denouncing owners subtract, hard</li>
+    </ol>
+    <p class="sub">TR = score/100, rounded — TR10 is reserved for a perfect storm that doesn't exist yet. share yours: <span class="mono">gitcooked.dev/trust?u=YOU</span></p>
+  </div>
+
+  <script type="application/json" data-trust-initial set:html={JSON.stringify(initial)}></script>
+  <script>
+    const result = document.getElementById('trust-result');
+    const tbody = document.querySelector('[data-table] tbody');
+    const moreBtn = document.querySelector('[data-more]');
+    const filter = document.querySelector('[data-filter]');
+
+    let loaded = JSON.parse(document.querySelector('[data-trust-initial]').textContent);
+    let shown = 50;
+    let total = null;
+    let nextPage = 0;
+    let TRUST = null; // compact map
+    let VR = null; // vouchrank (endorsers)
+
+    const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const fmt = (n) => (n == null ? '—' : n.toLocaleString());
+    const av = (u, s) => u.avatarUrl ? `${u.avatarUrl}${u.avatarUrl.includes('?') ? '&' : '?'}s=${s}` : `https://github.com/${u.login}.png?size=${s}`;
+    const tr = (score) => Math.round(score / 100);
+    const PARTS = [
+      ['network attention', '#2ee6ff'], ['bacon index', '#8a5cff'], ['activity', '#b6ff2e'],
+      ['vouches', '#2eff9e'], ['denouncements', '#ff5c5c'],
+    ];
+
+    const trPips = (t) => `<span class="tr-pips" title="TR${t}">${Array.from({ length: 10 }, (_, i) =>
+      `<i class="${i < t ? 'on' : ''}"></i>`).join('')}</span>`;
+
+    function row(u) {
+      const cls = u.trustRank <= 10 ? `t10 r${u.trustRank <= 3 ? u.trustRank : ''}` : '';
+      const mods = u.parts[3] + u.parts[4];
+      return `<tr class="${cls}">
+        <td class="rank">${u.trustRank}</td>
+        <td><div class="who">
+          <img class="avatar" src="${esc(av(u, u.trustRank <= 10 ? 96 : 64))}" loading="lazy" />
+          <div><a href="/trust?u=${esc(u.login)}">${esc(u.login)}</a><div class="name">${esc(u.name)}</div></div>
+        </div></td>
+        <td><span class="tr-badge">TR${tr(u.score)}</span></td>
+        <td class="meta mono">${u.parts[0] + u.parts[1]}</td>
+        <td class="meta mono">${u.parts[2]}</td>
+        <td class="meta mono">${mods === 0 ? '—' : (mods > 0 ? '+' : '') + mods}</td>
+        <td class="num">${u.score}</td>
+      </tr>`;
+    }
+
+    async function ensureData() {
+      if (!TRUST) TRUST = await fetch('/data/trust.json').then((r) => r.json()).catch(() => null);
+      return TRUST;
+    }
+
+    function update() {
+      tbody.innerHTML = loaded.slice(0, shown).map(row).join('');
+      moreBtn.classList.toggle('hidden', total != null && shown >= total);
+      moreBtn.textContent = `show more (${Math.min(shown, total ?? loaded.length).toLocaleString()} of ${(total ?? loaded.length).toLocaleString()})`;
+      window.gcHighlightMe?.();
+    }
+
+    moreBtn.addEventListener('click', async () => {
+      if (total == null) {
+        const m = await fetch('/data/trust_pages/meta.json').then((r) => r.json()).catch(() => ({ total: loaded.length }));
+        total = m.total;
+      }
+      shown += 100;
+      while (shown > loaded.length && loaded.length < total) {
+        const res = await fetch(`/data/trust_pages/page-${nextPage}.json`);
+        if (!res.ok) break;
+        const page = await res.json();
+        loaded = loaded.concat(page.filter((u) => u.trustRank > loaded.length));
+        nextPage++;
+      }
+      update();
+    });
+
+    // ---- trust web: the network behind a score ----
+    async function trustWeb(login, container) {
+      const web = await fetch(`/data/followers/${encodeURIComponent(login)}.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      if (!VR) VR = await fetch('/data/vouchrank.json').then((r) => r.json()).catch(() => null);
+      const endorsers = new Map((VR?.users?.[login]?.[7] ?? []).map(([l, pm]) => [l, pm]));
+      if (!web || !web.followers.length) {
+        if (endorsers.size === 0) return;
+        web.followers = [...endorsers.keys()].map((l) => ({ login: l, avatarUrl: '' }));
+      }
+      const score = (l) => TRUST?.users?.[l]?.[1] ?? 0;
+      const fs = web.followers.map((f) => ({ ...f, trust: score(f.login), pm: endorsers.get(f.login) ?? 0 }))
+        .sort((a, b) => b.pm - a.pm || b.trust - a.trust);
+      const supporters = fs.slice(0, 8);
+      const rest = fs.slice(8);
+      const bands = [[800, '800+'], [600, '600s–700s'], [400, '400s–500s'], [200, '200s–300s'], [0, 'under 200']]
+        .map(([min, label]) => ({ min, label, members: rest.filter((f) => f.trust >= min && (min === 800 || f.trust < min + 200)) }))
+        .filter((b) => b.members.length > 0);
+
+      const W = 760, H = 540, cx = W / 2, cy = H / 2;
+      const sup = supporters.map((f, i) => {
+        const a = (i / supporters.length) * Math.PI * 2 - Math.PI / 2;
+        const size = 30 + (f.trust / 1000) * 34;
+        return { f, x: cx + 150 * Math.cos(a), y: cy + 130 * Math.sin(a), size };
+      });
+      const bnd = bands.map((b, i) => {
+        const a = ((i + 0.5) / bands.length) * Math.PI * 2 - Math.PI / 2;
+        const r = 16 + Math.sqrt(b.members.length) * 4;
+        return { b, x: cx + 245 * Math.cos(a), y: cy + 215 * Math.sin(a), r };
+      });
+      container.innerHTML = `
+        <svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px">
+          ${sup.map((s) => `<line x1="${cx}" y1="${cy}" x2="${s.x}" y2="${s.y}" stroke="#2ee6ff"
+            stroke-opacity="${0.25 + (s.f.pm / 1000) * 2}" stroke-width="${1.5 + (s.f.pm / 1000) * 30}"/>`).join('')}
+          ${bnd.map((c) => `<line x1="${cx}" y1="${cy}" x2="${c.x}" y2="${c.y}" stroke="#8a5cff" stroke-opacity="0.15" stroke-width="1"/>`).join('')}
+          ${bnd.map((c) => `
+            <a href="/network?u=${esc(login)}">
+              <circle cx="${c.x}" cy="${c.y}" r="${c.r}" fill="#10132a" stroke="#8a5cff" stroke-opacity="0.5"/>
+              <text x="${c.x}" y="${c.y - 2}" text-anchor="middle" font-size="12" fill="#e8ecff" font-family="ui-monospace,Menlo,monospace">${c.b.members.length}</text>
+              <text x="${c.x}" y="${c.y + 11}" text-anchor="middle" font-size="8" fill="#7b84ad">trust ${c.b.label}</text>
+              <title>${c.b.members.length} supporters with trust ${c.b.label}</title>
+            </a>`).join('')}
+          ${sup.map((s) => `
+            <a href="/trust?u=${esc(s.f.login)}" onclick="location.href=this.href.baseVal;location.reload();return false">
+              <image href="${esc(av(s.f, 96))}" x="${s.x - s.size / 2}" y="${s.y - s.size / 2}" width="${s.size}" height="${s.size}" style="clip-path:circle(50%)"/>
+              <text x="${s.x}" y="${s.y + s.size / 2 + 11}" text-anchor="middle" font-size="10" fill="#e8ecff">${esc(s.f.login)}</text>
+              <text x="${s.x}" y="${s.y + s.size / 2 + 23}" text-anchor="middle" font-size="9" font-family="ui-monospace,Menlo,monospace" fill="#2ee6ff">TR${tr(s.f.trust)}${s.f.pm ? ` · +${(s.f.pm / 10).toFixed(1)}%` : ''}</text>
+              <title>${esc(s.f.login)} · trust ${s.f.trust}${s.f.pm ? ` · contributes ${(s.f.pm / 10).toFixed(1)}% of the score` : ''}</title>
+            </a>`).join('')}
+          <circle cx="${cx}" cy="${cy}" r="42" fill="#06070e" stroke="#b6ff2e" stroke-width="2.5"/>
+          <image href="https://github.com/${esc(login)}.png?size=128" x="${cx - 38}" y="${cy - 38}" width="76" height="76" style="clip-path:circle(50%)"/>
+        </svg>
+        <p class="sub" style="text-align:center">the ranks flowing in: biggest supporters up close (edge width = share of score), the rest clustered by trust band · <a href="/network?u=${esc(login)}">full 3D network →</a></p>`;
+    }
+
+    async function showCard(login) {
+      await ensureData();
+      if (!TRUST) return;
+      const hit = Object.entries(TRUST.users).find(([l]) => l.toLowerCase() === login.toLowerCase());
+      if (!hit) {
+        result.innerHTML = `
+          <div class="repo-card">
+            <p><b>${esc(login)}</b> isn't scored yet. TrustScore covers the ${fmt(TRUST.total)} ranked committers — to get scored:</p>
+            <p class="sub">1. make sure your GitHub profile location includes your country · 2. you may need more followers than your country's floor (shown on its page) · 3. then the crawler picks you up automatically.</p>
+            <a class="btn-more" style="display:inline-block;text-decoration:none"
+               href="https://github.com/madhavajay/gitcooked/issues/new?template=index-request.yml&title=index+request:+${encodeURIComponent(login)}"
+               target="_blank" rel="noopener">submit ${esc(login)} to be calculated →</a>
+          </div>`;
+        return;
+      }
+      const [name, [trustRank, score, vrPts, baconPts, actPts, vouchPts, denPts]] = hit;
+      const t = tr(score);
+      history.replaceState(null, '', `?u=${name}`);
+      const parts = [vrPts, baconPts, actPts, vouchPts, denPts];
+      const posTotal = Math.max(1, vrPts + baconPts + actPts + vouchPts);
+      result.innerHTML = `
+        <div class="stats-row" style="margin-top:22px">
+          <div class="stat"><div class="num" style="font-size:30px">TR${t}</div><div class="label">${trPips(t)}</div></div>
+          <div class="stat"><div class="num">${score}</div><div class="label">trustscore</div></div>
+          <div class="stat"><div class="num">#${fmt(trustRank)}</div><div class="label">of ${fmt(TRUST.total)}</div></div>
+        </div>
+        <div class="vr-bar">${parts.map((p, i) => p > 0 || (i === 4 && p < 0) ? `<span style="width:${(Math.abs(p) / posTotal) * 100}%;background:${PARTS[i][1]}"></span>` : '').join('')}</div>
+        <div class="vr-legend">${parts.map((p, i) => p !== 0 ? `<span><i style="background:${PARTS[i][1]}"></i>${PARTS[i][0]}: <b>${p > 0 ? p : p} pts</b></span>` : '').join('')}</div>
+        <div id="trust-web"></div>`;
+      trustWeb(name, document.getElementById('trust-web'));
+    }
+
+    const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+    filter.addEventListener('input', debounce(async () => {
+      const q = filter.value.trim().toLowerCase();
+      if (!q) { result.innerHTML = ''; update(); return; }
+      const matches = loaded.filter((u) => u.login.toLowerCase().includes(q) || (u.name || '').toLowerCase().includes(q));
+      tbody.innerHTML = matches.slice(0, 50).map(row).join('');
+      moreBtn.classList.add('hidden');
+      if (q.length >= 2) await showCard(q);
+    }, 300));
+
+    const u = new URLSearchParams(location.search).get('u');
+    if (u) { filter.value = u; showCard(u); }
+    update();
+  </script>
+
+  <style is:global>
+    .tr-badge {
+      font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 13px;
+      padding: 2px 8px; border-radius: 6px; border: 1px solid var(--violet);
+      color: var(--cyan); background: #8a5cff1a; white-space: nowrap;
+    }
+    .tr-pips { display: inline-flex; gap: 2px; margin-top: 4px; }
+    .tr-pips i {
+      width: 9px; height: 12px; border-radius: 2px; background: #14182e;
+      border: 1px solid var(--line);
+    }
+    .tr-pips i.on {
+      background: linear-gradient(180deg, var(--lime), #6fd400);
+      border-color: var(--lime); box-shadow: 0 0 8px #b6ff2e66;
+    }
+    #trust-web { margin-top: 18px; }
+    #trust-web image { transition: transform .12s; transform-origin: center; transform-box: fill-box; }
+    #trust-web a:hover image { transform: scale(1.25); }
+  </style>
+</Layout>

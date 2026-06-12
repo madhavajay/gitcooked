@@ -185,6 +185,8 @@ def main():
     web_dir = OUT.parent / "followers"
     web_dir.mkdir(parents=True, exist_ok=True)
     top1000 = {l for l, r in ranked.items() if r <= 1000}
+    # also webs for the top 2000 by vouchrank (trust page lookups go beyond top contribs)
+    top1000 |= {names[i] for i in order[:2000]}
     webs = 0
     for login in top1000:
         if login not in idx:

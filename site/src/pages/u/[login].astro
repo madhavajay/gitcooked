@@ -3,6 +3,7 @@ import Layout from '../../layouts/Layout.astro';
 import global from '../../data/global.json';
 import community from '../../data/community.json';
 import profilesMeta from '../../data/profiles_meta.json';
+import trustMap from '../../data/trust_map.json';
 
 export async function getStaticPaths() {
   const files = import.meta.glob('../../data/locations/*.json', { eager: true });
@@ -32,11 +33,12 @@ export async function getStaticPaths() {
       denounced: community.denounced?.[u.login] ?? [],
       socials: { ...(profilesMeta[u.login]?.socials ?? {}), ...(community.socials[u.login] ?? {}) },
       email: profilesMeta[u.login]?.email ?? null,
+      trust: trustMap[u.login] ?? null,
     },
   }));
 }
 
-const { user, ranks, local, vouchedBy, repoVouches, denounced, socials, email } = Astro.props;
+const { user, ranks, local, vouchedBy, repoVouches, denounced, socials, email, trust } = Astro.props;
 const av = user.avatarUrl ? `${user.avatarUrl}${user.avatarUrl.includes('?') ? '&' : '?'}s=240` : '';
 ---
 <Layout title={`${user.login} — gitcooked`} og={`/og/u/${user.login}.jpg`} description={`${user.login} is ranked #${ranks.commits} globally on gitcooked.`}>
@@ -56,6 +58,12 @@ const av = user.avatarUrl ? `${user.avatarUrl}${user.avatarUrl.includes('?') ? '
   </div>
 
   <div class="stats-row">
+    {trust && (
+      <a class="stat" href={`/trust?u=${user.login}`} style="text-decoration:none">
+        <div class="num" style="color:var(--lime);text-shadow:0 0 14px #b6ff2e66">TR{Math.round(trust[1] / 100)}</div>
+        <div class="label">trustscore {trust[1]} · #{trust[0].toLocaleString()}</div>
+      </a>
+    )}
     <div class="stat"><div class="num">#{ranks.commits}</div><div class="label">global · commits</div></div>
     {ranks.contributions && <div class="stat"><div class="num">#{ranks.contributions}</div><div class="label">global · contributions</div></div>}
     {ranks.all && <div class="stat"><div class="num">#{ranks.all}</div><div class="label">global · incl. private</div></div>}

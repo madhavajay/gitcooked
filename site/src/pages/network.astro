@@ -330,10 +330,12 @@ import Layout from '../layouts/Layout.astro';
     }
 
     let vouchData = null;
+    let trustData = null;
     async function showStats(node, directCount) {
       const panel = document.getElementById('stats-panel');
       const flag = flagEmoji(node.country);
       if (!vouchData) vouchData = await fetch('/data/vouchrank.json').then((r) => r.json()).catch(() => ({ users: {} }));
+      if (!trustData) trustData = await fetch('/data/trust.json').then((r) => r.json()).catch(() => ({ users: {} }));
       const vr = vouchData.users[node.login];
       document.getElementById('stats-avatar').src = node.avatarUrl ? `${node.avatarUrl}${node.avatarUrl.includes('?') ? '&' : '?'}s=128` : '';
       document.getElementById('stats-body').innerHTML = `
@@ -343,6 +345,7 @@ import Layout from '../layouts/Layout.astro';
         ${node.followers != null ? `<div class="sp-row"><span>followers</span><b>${node.followers.toLocaleString()}</b></div>` : ''}
         <div class="sp-row"><span>connections here</span><b>${directCount}</b></div>
         ${vr ? `<div class="sp-row"><span>vouchrank</span><b>${vr[1]} <span style="color:var(--muted)">(#${vr[0]})</span></b></div>` : ''}
+        ${trustData?.users?.[node.login] ? `<div class="sp-row"><span>trustscore</span><b>TR${Math.round(trustData.users[node.login][1] / 100)} · ${trustData.users[node.login][1]}</b></div>` : ''}
         <div class="sp-links">
           ${node.rank <= 1000 ? `<a href="/u/${node.login}">rank card</a> · ` : ''}
           <a href="/vouchrank?u=${node.login}">vouchrank</a> ·
