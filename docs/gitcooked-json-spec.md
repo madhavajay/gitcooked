@@ -42,17 +42,34 @@ profile repo:
 
 ```json
 {
-  "schema": "gitcooked-tokens-v0",
+  "schema": "gitcooked-tokens-v1",
   "month": "2026-06",
   "providers": {
-    "codex":  { "days": { "2026-06-02": [695627814, 1038540, 44494] } },
-    "claude": { "days": { "2026-06-02": [18647422, 157550, 0] } }
+    "codex": {
+      "days": { "2026-06-02": [695627814, 1038540, 44494] },
+      "harnesses": {
+        "codex-cli": { "days": { "2026-06-02": [695615865, 1038340, 44494] } },
+        "pi":        { "days": { "2026-06-02": [11949, 200, 0] } }
+      }
+    },
+    "claude": {
+      "days": { "2026-06-02": [18647422, 157550, 0] },
+      "harnesses": {
+        "claude-code": { "days": { "2026-06-02": [18647422, 157550, 0] } }
+      }
+    }
   }
 }
 ```
 
 Each day is `[inputTokens, outputTokens, costCents]` (cache reads count as
-input). Why this shape:
+input). `providers.<name>.days` is canonical: whose subscription burned.
+`harnesses` is an optional best-effort breakdown of the same numbers by the
+tool that drove them (`claude-code`, `codex-cli`, `pi`, ...) — harnesses and
+providers are many-to-many (pi can burn your claude or codex sub), and
+harness sums may be lower than `days` when usage isn't attributable. Rankings
+only ever read `days`; harnesses feed display flair ("cooked via pi").
+v0 files (no `harnesses`) stay valid. Why this shape:
 
 - **immutable past** — a finished month never changes, so indexers fetch it
   once and cache forever; only the current month is re-fetched
