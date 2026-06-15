@@ -12,7 +12,7 @@ const av = (u, s) => u.avatarUrl ? `${u.avatarUrl}${u.avatarUrl.includes('?') ? 
 
   <div class="tabs">
     <button class="tab active" data-sort="members"># ranked contributors</button>
-    <button class="tab" data-sort="vouch">vouchrank score</button>
+    <button class="tab" data-sort="vouch">trust score</button>
   </div>
 
   <table class="rank-table" id="repos-table">
@@ -32,7 +32,7 @@ const av = (u, s) => u.avatarUrl ? `${u.avatarUrl}${u.avatarUrl.includes('?') ? 
       const sorted = [...repos].sort((a, b) =>
         sort === 'vouch' ? b.vouchScore - a.vouchScore : b.memberCount - a.memberCount || b.vouchScore - a.vouchScore
       );
-      scoreCol.textContent = sort === 'vouch' ? 'vouch score' : 'devs';
+      scoreCol.textContent = sort === 'vouch' ? 'trust score' : 'devs';
       tbody.innerHTML = sorted.map((r, i) => `
         <tr class="${i < 10 ? `t10 r${i < 3 ? i + 1 : ''}` : ''}">
           <td class="rank">${i + 1}</td>

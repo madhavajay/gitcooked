@@ -18,6 +18,10 @@ const tr = (score) => Math.round(score / 100);
   <div id="trust-result"></div>
 
   <h2 class="section-title">trust board</h2>
+  <div class="tabs">
+    <button class="tab active" data-pool="all">everyone</button>
+    <button class="tab" data-pool="vouched">only vouched</button>
+  </div>
   <table class="rank-table" data-table>
     <thead>
       <tr>
@@ -50,7 +54,7 @@ const tr = (score) => Math.round(score / 100);
   <h2 class="section-title" id="how">how it's calculated</h2>
   <div class="vr-method">
     <ol>
-      <li><b>network attention (0–400)</b> — <a href="/vouchrank">VouchRank</a>: PageRank over who-follows-whom among ranked committers; attention from trusted devs is worth more</li>
+      <li><b>network attention (0–400)</b> — PageRank over who-follows-whom among ranked committers; attention from trusted devs is worth more, and it flows through the graph so follower bots are worth ~nothing</li>
       <li><b>bacon index (0–200)</b> — proximity to the trusted core: harmonic mean of your distance to the top-50 VouchRank devs</li>
       <li><b>activity (0–300)</b> — your contribution rank, log-scaled (#1 = 300)</li>
       <li><b>vouches (+0–100)</b> — +20 per distinct project owner that vouches for you (<span class="mono">VOUCHED.td</span> / <span class="mono">gitcooked.json</span>); owner-deduped so repo farms don't count</li>
@@ -66,12 +70,15 @@ const tr = (score) => Math.round(score / 100);
     const moreBtn = document.querySelector('[data-more]');
     const filter = document.querySelector('[data-filter]');
 
-    let loaded = JSON.parse(document.querySelector('[data-trust-initial]').textContent);
+    const allInitial = JSON.parse(document.querySelector('[data-trust-initial]').textContent);
+    let loaded = allInitial;
     let shown = 50;
     let total = null;
     let nextPage = 0;
+    let pool = 'all';
+    let vouchedRows = null; // users with vouch/denounce modifiers
     let TRUST = null; // compact map
-    let VR = null; // vouchrank (endorsers)
+    let VR = null; // endorser decomposition (internal pagerank data)
 
     const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const fmt = (n) => (n == null ? '—' : n.toLocaleString());
@@ -115,20 +122,40 @@ const tr = (score) => Math.round(score / 100);
     }
 
     moreBtn.addEventListener('click', async () => {
-      if (total == null) {
-        const m = await fetch('/data/trust_pages/meta.json').then((r) => r.json()).catch(() => ({ total: loaded.length }));
-        total = m.total;
-      }
       shown += 100;
-      while (shown > loaded.length && loaded.length < total) {
-        const res = await fetch(`/data/trust_pages/page-${nextPage}.json`);
-        if (!res.ok) break;
-        const page = await res.json();
-        loaded = loaded.concat(page.filter((u) => u.trustRank > loaded.length));
-        nextPage++;
+      if (pool === 'all') {
+        if (total == null) {
+          const m = await fetch('/data/trust_pages/meta.json').then((r) => r.json()).catch(() => ({ total: loaded.length }));
+          total = m.total;
+        }
+        while (shown > loaded.length && loaded.length < total) {
+          const res = await fetch(`/data/trust_pages/page-${nextPage}.json`);
+          if (!res.ok) break;
+          const page = await res.json();
+          loaded = loaded.concat(page.filter((u) => u.trustRank > loaded.length));
+          nextPage++;
+        }
       }
       update();
     });
+
+    document.querySelectorAll('[data-pool]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        document.querySelectorAll('[data-pool]').forEach((x) => x.classList.toggle('active', x === b));
+        pool = b.dataset.pool;
+        shown = 50;
+        if (pool === 'vouched') {
+          if (!vouchedRows) vouchedRows = await fetch('/data/trust_vouched.json').then((r) => r.json()).catch(() => []);
+          loaded = vouchedRows;
+          total = vouchedRows.length;
+        } else {
+          loaded = allInitial;
+          total = null;
+          nextPage = 0;
+        }
+        update();
+      })
+    );
 
     // ---- trust web: the network behind a score ----
     async function trustWeb(login, container) {

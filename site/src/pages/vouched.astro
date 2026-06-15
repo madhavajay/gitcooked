@@ -16,13 +16,21 @@ for (const r of vouchedRepos.repos) {
     s.denounced.push(r.repo);
   }
 }
-const board = Object.values(score)
-  .map((s) => ({ ...s, score: s.vouched.length - s.denounced.length, user: ranked.get(s.login.toLowerCase()) }))
-  .sort((a, b) => b.score - a.score)
-  .slice(0, 50);
+const enriched = Object.values(score).map((s) => {
+  const u = ranked.get(s.login.toLowerCase());
+  return {
+    ...s,
+    score: s.vouched.length - s.denounced.length,
+    rank: u?.rank ?? null,
+    avatarUrl: u?.avatarUrl ?? '',
+  };
+});
+const boards = {
+  vouched: enriched.filter((s) => s.vouched.length).sort((a, b) => b.score - a.score).slice(0, 50),
+  denounced: enriched.filter((s) => s.denounced.length).sort((a, b) => b.denounced.length - a.denounced.length).slice(0, 50),
+};
 
 const totalVouches = vouchedRepos.repos.reduce((n, r) => n + r.vouched.length, 0);
-const av = (u, s) => u?.avatarUrl ? `${u.avatarUrl}${u.avatarUrl.includes('?') ? '&' : '?'}s=${s}` : '';
 ---
 <Layout title="vouched — gitcooked" description="VOUCHED.td files across GitHub: who projects vouch for, indexed.">
   <h1 class="glow">vouched</h1>
@@ -37,28 +45,17 @@ const av = (u, s) => u?.avatarUrl ? `${u.avatarUrl}${u.avatarUrl.includes('?') ?
   <input class="filter-box" id="repo-input" type="search" placeholder="owner/repo…" autocomplete="off" />
   <div id="repo-result"></div>
 
-  <h2 class="section-title">most vouched</h2>
-  <p class="sub">score = project vouches − denouncements</p>
+  <div class="tabs" style="margin-top:34px">
+    <button class="tab active" data-board="vouched">most vouched</button>
+    <button class="tab" data-board="denounced">most denounced</button>
+  </div>
+  <p class="sub" id="board-sub">score = project vouches − denouncements</p>
   <table class="rank-table">
-    <thead><tr><th>#</th><th>user</th><th>vouched by</th><th>denounced</th><th style="text-align:right">score</th></tr></thead>
-    <tbody>
-      {board.map((s, i) => (
-        <tr class={i < 10 ? `t10 r${i < 3 ? i + 1 : ''}` : ''}>
-          <td class="rank">{i + 1}</td>
-          <td><div class="who">
-            {s.user && <img class="avatar" src={av(s.user, 64)} loading="lazy" />}
-            <div>
-              <a href={s.user && s.user.rank <= 1000 ? `/u/${s.login}` : `https://github.com/${s.login}`}>{s.login}</a>
-              {s.user && <div class="name">contrib #{s.user.rank.toLocaleString()}</div>}
-            </div>
-          </div></td>
-          <td class="meta">{s.vouched.slice(0, 4).map((r) => <a class="chip chip-good" href={`https://github.com/${r}`} target="_blank" rel="noopener">{r}</a>)}{s.vouched.length > 4 && <span class="chip">+{s.vouched.length - 4}</span>}</td>
-          <td class="meta">{s.denounced.map((r) => <a class="chip chip-bad" href={`https://github.com/${r}`} target="_blank" rel="noopener">{r}</a>)}</td>
-          <td class="num">{s.score}</td>
-        </tr>
-      ))}
-    </tbody>
+    <thead><tr><th>#</th><th>user</th><th id="col-good">vouched by</th><th id="col-bad">denounced</th><th style="text-align:right" id="col-score">score</th></tr></thead>
+    <tbody id="board-body"></tbody>
   </table>
+
+  <script type="application/json" id="boards-data" set:html={JSON.stringify(boards)}></script>
 
   <h2 class="section-title">indexed repos</h2>
   <table class="rank-table">
@@ -80,6 +77,48 @@ const av = (u, s) => u?.avatarUrl ? `${u.avatarUrl}${u.avatarUrl.includes('?') ?
     const input = document.getElementById('repo-input');
     const result = document.getElementById('repo-result');
     const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+    // ---- vouched / denounced board toggle ----
+    const BOARDS = JSON.parse(document.getElementById('boards-data').textContent);
+    const boardBody = document.getElementById('board-body');
+    const avUrl = (s, size) => s.avatarUrl
+      ? `${s.avatarUrl}${s.avatarUrl.includes('?') ? '&' : '?'}s=${size}`
+      : `https://github.com/${s.login}.png?size=${size}`;
+
+    function chips(repos, cls, max = 4) {
+      return repos.slice(0, max).map((r) =>
+        `<a class="chip ${cls}" href="https://github.com/${esc(r)}" target="_blank" rel="noopener">${esc(r)}</a>`).join('') +
+        (repos.length > max ? `<span class="chip">+${repos.length - max}</span>` : '');
+    }
+
+    function showBoard(kind) {
+      const denounceMode = kind === 'denounced';
+      document.getElementById('board-sub').textContent = denounceMode
+        ? 'sorted by number of denouncing projects — indexed from public VOUCHED.td files'
+        : 'score = project vouches − denouncements';
+      document.getElementById('col-score').textContent = denounceMode ? 'denounced' : 'score';
+      boardBody.innerHTML = BOARDS[kind].map((s, i) => `
+        <tr class="${!denounceMode && i < 10 ? `t10 r${i < 3 ? i + 1 : ''}` : ''}">
+          <td class="rank">${i + 1}</td>
+          <td><div class="who">
+            <img class="avatar" src="${esc(avUrl(s, 64))}" loading="lazy" />
+            <div>
+              <a href="${s.rank && s.rank <= 1000 ? `/u/${esc(s.login)}` : `https://github.com/${esc(s.login)}`}">${esc(s.login)}</a>
+              ${s.rank ? `<div class="name">contrib #${s.rank.toLocaleString()}</div>` : ''}
+            </div>
+          </div></td>
+          <td class="meta">${chips(s.vouched, 'chip-good')}</td>
+          <td class="meta">${chips(s.denounced, 'chip-bad', 6)}</td>
+          <td class="num" ${denounceMode ? 'style="color:#ff8c8c"' : ''}>${denounceMode ? s.denounced.length : s.score}</td>
+        </tr>`).join('');
+    }
+    document.querySelectorAll('[data-board]').forEach((b) =>
+      b.addEventListener('click', () => {
+        document.querySelectorAll('[data-board]').forEach((x) => x.classList.toggle('active', x === b));
+        showBoard(b.dataset.board);
+      })
+    );
+    showBoard('vouched');
 
     const LOGIN_RE = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/;
     function parseVouched(text) {

@@ -158,6 +158,8 @@ def main():
     (DATA / "trust_map.json").write_text(
         json.dumps({r["login"]: [r["trustRank"], r["score"]] for r in rows}, ensure_ascii=False)
     )
+    vouched_rows = [r for r in rows if r["parts"][3] != 0 or r["parts"][4] != 0]
+    (PUB / "trust_vouched.json").write_text(json.dumps(vouched_rows, ensure_ascii=False))
     chunk_dir = PUB / "trust_pages"
     chunk_dir.mkdir(parents=True, exist_ok=True)
     page = 500

@@ -151,7 +151,7 @@ const av = user.avatarUrl ? `${user.avatarUrl}${user.avatarUrl.includes('?') ? '
         document.getElementById('web-sub').textContent =
           `${web.inNetwork.toLocaleString()} ranked devs follow ${login}` +
           (outside != null && outside > 0 ? ` (+${outside.toLocaleString()} followers outside the rankings)` : '') +
-          ` — bigger & closer to the center = higher vouchrank. click to explore.`;
+          ` — bigger & closer to the center = higher trustscore. click to explore.`;
         const fs = web.followers;
         const W = Math.min(960, document.getElementById('follower-web').clientWidth || 960);
         const GA = Math.PI * (3 - Math.sqrt(5));

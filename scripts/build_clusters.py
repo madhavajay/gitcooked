@@ -134,11 +134,11 @@ def main():
         )
     )
 
-    # top repos by ranked contributors, with vouchrank totals
+    # top repos by ranked contributors, with trust-score totals
     vouch = {}
-    vr_path = ROOT / "site" / "public" / "data" / "vouchrank.json"
-    if vr_path.exists():
-        vouch = {l: v[1] for l, v in json.loads(vr_path.read_text())["users"].items()}
+    trust_path = ROOT / "site" / "public" / "data" / "trust.json"
+    if trust_path.exists():
+        vouch = {l: v[1] for l, v in json.loads(trust_path.read_text())["users"].items()}
     repo_meta = {}
     for rec in users.values():
         for kind in ("owned", "contributed"):

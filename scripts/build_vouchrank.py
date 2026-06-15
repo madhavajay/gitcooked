@@ -159,24 +159,6 @@ def main():
         )
     )
 
-    # enriched rows for the leaderboard table (SSR head + paginated chunks)
-    def enrich(i):
-        login = names[i]
-        u = users[login]
-        m = meta.get(login) or {}
-        return {
-            "vrRank": u[0],
-            "score": u[1],
-            "login": login,
-            "name": m.get("name") or "",
-            "avatarUrl": m.get("avatarUrl") or "",
-            "company": m.get("company") or "",
-            "locations": (m.get("locations") or [])[:3],
-            "followers": u[2],
-            "inNetwork": u[5],
-            "contribRank": u[4],
-        }
-
     # per-user follower webs for profile pages (top 1000 by contribution rank)
     followers_of = [[] for _ in range(n)]
     for i in range(n):
@@ -221,17 +203,7 @@ def main():
         webs += 1
     print(f"follower webs for {webs} top-1000 users -> {web_dir}/")
 
-    rows = [enrich(i) for i in order]
-    (DATA / "vouchrank_top.json").write_text(json.dumps(rows[:200], ensure_ascii=False))
-    chunk_dir = OUT.parent / "vouchrank_pages"
-    chunk_dir.mkdir(parents=True, exist_ok=True)
-    page_size = 500
-    for p in range(0, len(rows), page_size):
-        (chunk_dir / f"page-{p // page_size}.json").write_text(
-            json.dumps(rows[p : p + page_size], ensure_ascii=False)
-        )
-    (chunk_dir / "meta.json").write_text(json.dumps({"total": len(rows), "pageSize": page_size}))
-    print(f"vouchrank over {n} users ({len(store)} crawled) -> {OUT} + {len(rows) // page_size + 1} chunks")
+    print(f"pagerank over {n} users ({len(store)} crawled) -> {OUT} (internal: feeds trustscore + trust webs)")
     for i in order[:10]:
         print(f"  {users[names[i]][0]:>3}. {names[i]:<22} score {users[names[i]][1]}")
 
