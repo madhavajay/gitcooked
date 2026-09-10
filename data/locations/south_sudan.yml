@@ -13,7 +13,7 @@ users:
     name: "Garang Makuach Deng"
     login: "garango123"
     avatarUrl: https://avatars.githubusercontent.com/u/216372077?u=f18bd230bf8f9c878dfa1d6df1a722ccdfbb23f6&v=4
-    contributions: 127
+    contributions: 128
     company: "University of the People "
     organizations: ""
 
@@ -34,19 +34,19 @@ users:
     organizations: ""
 
   - rank: 5
-    name: "Dr Jacob Akuochpiir Achuoth Kok"
-    login: "jacobkok197"
-    avatarUrl: https://avatars.githubusercontent.com/u/242204003?u=85c0798eeb299eed54a6a4d5a7a6083c201720ec&v=4
-    contributions: 1
-    company: "Ministry of Health - South Sudan"
-    organizations: ""
-
-  - rank: 6
     name: "John JadaYpngo"
     login: "Johnyongo"
     avatarUrl: https://avatars.githubusercontent.com/u/39984610?u=988f8805871a7f2a01d359fbc485f0ceecabd3f2&v=4
     contributions: 1
     company: "Jaking Enterprises "
+    organizations: ""
+
+  - rank: 6
+    name: "Dr Jacob Akuochpiir Achuoth Kok"
+    login: "jacobkok197"
+    avatarUrl: https://avatars.githubusercontent.com/u/242204003?u=85c0798eeb299eed54a6a4d5a7a6083c201720ec&v=4
+    contributions: 1
+    company: "Ministry of Health - South Sudan"
     organizations: ""
 
   - rank: 7
@@ -286,7 +286,7 @@ users_public_contributions:
     name: "Garang Makuach Deng"
     login: "garango123"
     avatarUrl: https://avatars.githubusercontent.com/u/216372077?u=f18bd230bf8f9c878dfa1d6df1a722ccdfbb23f6&v=4
-    contributions: 134
+    contributions: 135
     company: "University of the People "
     organizations: ""
 
@@ -323,19 +323,19 @@ users_public_contributions:
     organizations: ""
 
   - rank: 7
-    name: "David Gap"
-    login: "KdavidGap"
-    avatarUrl: https://avatars.githubusercontent.com/u/97264655?u=0bb62e77f36c7797dfb49f02a876f96a96e1a59c&v=4
-    contributions: 1
-    company: "Ram Talent co."
-    organizations: ""
-
-  - rank: 8
     name: "John JadaYpngo"
     login: "Johnyongo"
     avatarUrl: https://avatars.githubusercontent.com/u/39984610?u=988f8805871a7f2a01d359fbc485f0ceecabd3f2&v=4
     contributions: 1
     company: "Jaking Enterprises "
+    organizations: ""
+
+  - rank: 8
+    name: "David Gap"
+    login: "KdavidGap"
+    avatarUrl: https://avatars.githubusercontent.com/u/97264655?u=0bb62e77f36c7797dfb49f02a876f96a96e1a59c&v=4
+    contributions: 1
+    company: "Ram Talent co."
     organizations: ""
 
   - rank: 9
@@ -560,7 +560,7 @@ private_users:
     name: "Garang Makuach Deng"
     login: "garango123"
     avatarUrl: https://avatars.githubusercontent.com/u/216372077?u=f18bd230bf8f9c878dfa1d6df1a722ccdfbb23f6&v=4
-    contributions: 134
+    contributions: 135
     company: "University of the People "
     organizations: ""
 
@@ -597,19 +597,19 @@ private_users:
     organizations: ""
 
   - rank: 7
-    name: "David Gap"
-    login: "KdavidGap"
-    avatarUrl: https://avatars.githubusercontent.com/u/97264655?u=0bb62e77f36c7797dfb49f02a876f96a96e1a59c&v=4
-    contributions: 1
-    company: "Ram Talent co."
-    organizations: ""
-
-  - rank: 8
     name: "John JadaYpngo"
     login: "Johnyongo"
     avatarUrl: https://avatars.githubusercontent.com/u/39984610?u=988f8805871a7f2a01d359fbc485f0ceecabd3f2&v=4
     contributions: 1
     company: "Jaking Enterprises "
+    organizations: ""
+
+  - rank: 8
+    name: "David Gap"
+    login: "KdavidGap"
+    avatarUrl: https://avatars.githubusercontent.com/u/97264655?u=0bb62e77f36c7797dfb49f02a876f96a96e1a59c&v=4
+    contributions: 1
+    company: "Ram Talent co."
     organizations: ""
 
   - rank: 9
@@ -837,7 +837,7 @@ private_organizations:
   - rank: 1
     name: "konetahub"
     membercount: 1
-generated: 2026-09-04T18:23:42Z
+generated: 2026-09-10T21:42:37Z
 min_followers_required: 0
 total_user_count: 34
 title: South Sudan
